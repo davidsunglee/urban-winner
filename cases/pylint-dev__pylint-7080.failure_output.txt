@@ -29,7 +29,7 @@ tests/test_self.py:1345:
 _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
 
 self = <test_self.TestRunTC object at 0x108614980>
-args = ['--rcfile=/Users/david/Code/urban-winner/fixtures/pylint-dev__pylint-7080/pylint/testutils/testing_pylintrc', '.', '--recursive=y', '--ignore-paths=^ignored_subdirectory/.*']
+args = ['--rcfile=fixtures/pylint-dev__pylint-7080/pylint/testutils/testing_pylintrc', '.', '--recursive=y', '--ignore-paths=^ignored_subdirectory/.*']
 reporter = None, out = <_io.StringIO object at 0x1085359c0>, code = 0
 
     def _runtest(

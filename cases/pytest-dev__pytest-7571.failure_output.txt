@@ -40,7 +40,7 @@ E            'errors': 0,...
 E         
 E         ...Full output truncated (13 lines hidden), use '-vv' to show
 
-/Users/david/Code/urban-winner/fixtures/pytest-dev__pytest-7571/testing/logging/test_fixture.py:81: AssertionError
+fixtures/pytest-dev__pytest-7571/testing/logging/test_fixture.py:81: AssertionError
 ----------------------------- Captured stdout call -----------------------------
 ============================= test session starts ==============================
 platform darwin -- Python 3.11.15, pytest-6.0.0rc1, py-1.11.0, pluggy-0.13.1

@@ -17,15 +17,15 @@ E        +  where CaseInsensitiveDict({'User-Agent': 'python-requests/2.3.0 CPyt
 test_requests.py:220: AssertionError
 =============================== warnings summary ===============================
 requests/packages/urllib3/_collections.py:7
-  /Users/david/Code/urban-winner/fixtures/psf__requests-1921/requests/packages/urllib3/_collections.py:7: DeprecationWarning: Using or importing the ABCs from 'collections' instead of from 'collections.abc' is deprecated since Python 3.3, and in 3.10 it will stop working
+  fixtures/psf__requests-1921/requests/packages/urllib3/_collections.py:7: DeprecationWarning: Using or importing the ABCs from 'collections' instead of from 'collections.abc' is deprecated since Python 3.3, and in 3.10 it will stop working
     from collections import MutableMapping
 
 requests/sessions.py:12
-  /Users/david/Code/urban-winner/fixtures/psf__requests-1921/requests/sessions.py:12: DeprecationWarning: Using or importing the ABCs from 'collections' instead of from 'collections.abc' is deprecated since Python 3.3, and in 3.10 it will stop working
+  fixtures/psf__requests-1921/requests/sessions.py:12: DeprecationWarning: Using or importing the ABCs from 'collections' instead of from 'collections.abc' is deprecated since Python 3.3, and in 3.10 it will stop working
     from collections import Mapping
 
 test_requests.py::RequestsTestCase::test_headers_on_session_with_None_are_not_sent
-  /Users/david/Code/urban-winner/fixtures/psf__requests-1921/requests/models.py:164: DeprecationWarning: Using or importing the ABCs from 'collections' instead of from 'collections.abc' is deprecated since Python 3.3, and in 3.10 it will stop working
+  fixtures/psf__requests-1921/requests/models.py:164: DeprecationWarning: Using or importing the ABCs from 'collections' instead of from 'collections.abc' is deprecated since Python 3.3, and in 3.10 it will stop working
     if isinstance(hook, collections.Callable):
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
