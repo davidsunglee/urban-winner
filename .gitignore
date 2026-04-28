@@ -26,3 +26,6 @@ build/
 # Eval output
 results/
 *.log
+
+# Local worktrees
+.worktrees/
