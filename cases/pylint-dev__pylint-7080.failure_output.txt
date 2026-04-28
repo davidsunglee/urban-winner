@@ -1,0 +1,70 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_______________ TestRunTC.test_ignore_path_recursive_current_dir _______________
+
+self = <test_self.TestRunTC object at 0x108614980>
+
+    def test_ignore_path_recursive_current_dir(self) -> None:
+        """Tests that path is normalized before checked that is ignored. GitHub issue #6964"""
+        with _test_sys_path():
+            # pytest is including directory HERE/regrtest_data to sys.path which causes
+            # astroid to believe that directory is a package.
+            sys.path = [
+                path
+                for path in sys.path
+                if not os.path.basename(path) == "regrtest_data"
+            ]
+            with _test_cwd():
+                os.chdir(join(HERE, "regrtest_data", "directory"))
+>               self._runtest(
+                    [
+                        ".",
+                        "--recursive=y",
+                        "--ignore-paths=^ignored_subdirectory/.*",
+                    ],
+                    code=0,
+                )
+
+tests/test_self.py:1345:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <test_self.TestRunTC object at 0x108614980>
+args = ['--rcfile=/Users/david/Code/urban-winner/fixtures/pylint-dev__pylint-7080/pylint/testutils/testing_pylintrc', '.', '--recursive=y', '--ignore-paths=^ignored_subdirectory/.*']
+reporter = None, out = <_io.StringIO object at 0x1085359c0>, code = 0
+
+    def _runtest(
+        self,
+        args: list[str],
+        reporter: Any = None,
+        out: StringIO | None = None,
+        code: int | None = None,
+    ) -> None:
+        if out is None:
+            out = StringIO()
+        args = _add_rcfile_default_pylintrc(args)
+        pylint_code = self._run_pylint(args, reporter=reporter, out=out)
+        if reporter:
+            output = reporter.out.getvalue()
+        elif hasattr(out, "getvalue"):
+            output = out.getvalue()
+        else:
+            output = None
+        msg = f"expected output status {code}, got {pylint_code}"
+        if output is not None:
+            msg = f"{msg}. Below pylint output: \n{output}"
+>       assert pylint_code == code, msg
+E       AssertionError: expected output status 0, got 20. Below pylint output:
+E         ************* Module failing
+E         ignored_subdirectory/failing.py:1:0: C0114: Missing module docstring (missing-module-docstring)
+E         ignored_subdirectory/failing.py:1:0: W0611: Unused import re (unused-import)
+E
+E         -----------------------------------
+E         Your code has been rated at 0.00/10
+E
+E
+E       assert 20 == 0
+
+tests/test_self.py:146: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_self.py::TestRunTC::test_ignore_path_recursive_current_dir
+1 failed in 0.16s

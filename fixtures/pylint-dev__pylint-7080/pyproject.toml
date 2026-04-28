@@ -1,0 +1,62 @@
+# Fixture overlay for SWE-bench instance pylint-dev__pylint-7080
+# urban-winner shootout: https://github.com/pylint-dev/pylint @ 3c5eca2
+#
+# This pyproject.toml is an urban-winner fixture overlay only.
+# It installs pylint from the local source tree (via setup.cfg / setup.py)
+# plus the test dependencies needed to run test_self.py.
+#
+# The [project] table duplicates key fields from setup.cfg so that setuptools
+# sees a consistent build config. Fields that setup.cfg sets dynamically
+# (readme, scripts, entry_points) are listed under dynamic so setuptools
+# reads them from setup.cfg rather than pyproject.toml.
+
+[project]
+name = "pylint"
+version = "2.15.0.dev0"
+description = "python code static checker"
+requires-python = ">=3.7.2,<3.14"
+dynamic = ["readme", "scripts", "entry-points", "classifiers", "keywords"]
+dependencies = [
+    "dill>=0.2",
+    "platformdirs>=2.2.0",
+    "astroid>=2.11.6,<=2.12.0.dev0",
+    "isort>=4.2.5,<6",
+    "mccabe>=0.6,<0.8",
+    "tomli>=1.1.0; python_version<'3.11'",
+    "tomlkit>=0.10.1",
+    "colorama>=0.4.5; sys_platform=='win32'",
+    "typing-extensions>=3.10.0; python_version<'3.10'",
+]
+
+[project.optional-dependencies]
+testutils = ["gitpython>3"]
+
+[dependency-groups]
+dev = [
+    "pylint[testutils]",
+    "astroid==2.11.6",
+    "typing-extensions~=4.2",
+    "pytest~=7.1",
+    "pytest-timeout~=2.1",
+    "requests",
+    "py>=1.11",
+]
+
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["pylint*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["*test_*.py"]
+addopts = "--strict-markers"
+markers = [
+    "primer_stdlib: Checks for crashes and errors when running pylint on stdlib",
+    "primer_external_batch_one: Checks for crashes and errors when running pylint on external libs (batch one)",
+    "benchmark: Baseline of pylint performance",
+    "timeout: Marks from pytest-timeout.",
+    "needs_two_cores: Checks that need 2 or more cores to be meaningful",
+]
