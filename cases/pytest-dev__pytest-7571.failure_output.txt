@@ -1,0 +1,81 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____________________ test_change_level_undos_handler_level _____________________
+
+testdir = <Testdir local('/private/var/folders/32/33v_wbcd6rv1sqvqs6v7qcvw0000gp/T/pytest-of-david/pytest-2/test_change_level_undos_handler_level0')>
+
+    def test_change_level_undos_handler_level(testdir: Testdir) -> None:
+        """Ensure that 'set_level' is undone after the end of the test (handler).
+    
+        Issue #7569. Tests the handler level specifically.
+        """
+        testdir.makepyfile(
+            """
+            import logging
+    
+            def test1(caplog):
+                assert caplog.handler.level == 0
+                caplog.set_level(41)
+                assert caplog.handler.level == 41
+    
+            def test2(caplog):
+                assert caplog.handler.level == 0
+    
+            def test3(caplog):
+                assert caplog.handler.level == 0
+                caplog.set_level(43)
+                assert caplog.handler.level == 43
+        """
+        )
+        result = testdir.runpytest()
+>       result.assert_outcomes(passed=3)
+E       AssertionError: assert {'errors': 0,...pped': 0, ...} == {'errors': 0,...pped': 0, ...}
+E         Omitting 4 identical items, use -vv to show
+E         Differing items:
+E         {'failed': 2} != {'failed': 0}
+E         {'passed': 1} != {'passed': 3}
+E         Full diff:
+E           {
+E            'errors': 0,...
+E         
+E         ...Full output truncated (13 lines hidden), use '-vv' to show
+
+/Users/david/Code/urban-winner/fixtures/pytest-dev__pytest-7571/testing/logging/test_fixture.py:81: AssertionError
+----------------------------- Captured stdout call -----------------------------
+============================= test session starts ==============================
+platform darwin -- Python 3.11.15, pytest-6.0.0rc1, py-1.11.0, pluggy-0.13.1
+rootdir: /private/var/folders/32/33v_wbcd6rv1sqvqs6v7qcvw0000gp/T/pytest-of-david/pytest-2/test_change_level_undos_handler_level0
+collected 3 items
+
+test_change_level_undos_handler_level.py .FF                             [100%]
+
+=================================== FAILURES ===================================
+____________________________________ test2 _____________________________________
+
+caplog = <_pytest.logging.LogCaptureFixture object at 0x1092e5190>
+
+    def test2(caplog):
+>       assert caplog.handler.level == 0
+E       assert 41 == 0
+E        +  where 41 = <LogCaptureHandler (Level 41)>.level
+E        +    where <LogCaptureHandler (Level 41)> = <_pytest.logging.LogCaptureFixture object at 0x1092e5190>.handler
+
+test_change_level_undos_handler_level.py:9: AssertionError
+____________________________________ test3 _____________________________________
+
+caplog = <_pytest.logging.LogCaptureFixture object at 0x109195190>
+
+    def test3(caplog):
+>       assert caplog.handler.level == 0
+E       assert 41 == 0
+E        +  where 41 = <LogCaptureHandler (Level 41)>.level
+E        +    where <LogCaptureHandler (Level 41)> = <_pytest.logging.LogCaptureFixture object at 0x109195190>.handler
+
+test_change_level_undos_handler_level.py:12: AssertionError
+=========================== short test summary info ============================
+FAILED test_change_level_undos_handler_level.py::test2 - assert 41 == 0
+FAILED test_change_level_undos_handler_level.py::test3 - assert 41 == 0
+========================= 2 failed, 1 passed in 0.01s ==========================
+=========================== short test summary info ============================
+FAILED testing/logging/test_fixture.py::test_change_level_undos_handler_level
+1 failed in 0.06s
