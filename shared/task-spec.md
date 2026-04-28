@@ -116,8 +116,8 @@ The harness owns everything that requires consistency across frameworks:
 
 - **Worktree lifecycle** — derive a fresh isolated worktree from `fixture_repo` for every `(framework, run)` pair; reset/destroy it after the run.
 - **Diff derivation** — after the agent exits, run `git diff` (or equivalent) against the pristine worktree state to compute the canonical diff and the canonical changed-file list. This is **authoritative** over `output.changed_files`.
-- **Visible test outcome** — re-run `failing_test_command` against the post-run worktree and record exit code + output. The harness derives the canonical visible outcome; this is **authoritative** over `output.tests_run`.
-- **Hidden test outcome** — when the case provides `hidden_test_command`, run it post-fix and record the result as a separate scoring category.
+- **Visible test outcome** — re-run `failing_test_command` against the post-run worktree and record exit code + output. Both `failing_test_command` and `hidden_test_command` are executed with the working directory set to the per-run worktree root (i.e., the materialized `fixture_repo`); the commands are written assuming this `cwd` and may use repo-relative paths. The harness derives the canonical visible outcome; this is **authoritative** over `output.tests_run`.
+- **Hidden test outcome** — when the case provides `hidden_test_command`, run it post-fix (same `cwd` rule) and record the result as a separate scoring category.
 - **Edit-constraint compliance** — check the canonical changed-file list against `disallowed_paths`, `allowed_paths`, and `max_changed_files`.
 - **Trace capture** — read `trace.steps`, `trace.tokens`, and `trace.latency_ms` from the response envelope for scoring.
 - **Cleanup** — destroy the worktree after scoring.
