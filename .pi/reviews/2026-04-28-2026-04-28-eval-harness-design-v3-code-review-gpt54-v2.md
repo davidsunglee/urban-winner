@@ -97,4 +97,13 @@ Remaining from reviewer: setup idempotence/staleness, campaign timestamp collisi
   - `cd evals && uv run pytest -q tests/setup_test.py tests/cli_test.py`
   - `git diff --check`
 
-Remaining from reviewer: campaign timestamp collisions.
+**Batch 4: campaign directory collision safety**
+- Fixed `eval_new()` to create a unique campaign directory without deleting existing campaigns when timestamp names collide.
+- Updated `runs/CURRENT` to point at the actual created campaign directory name.
+- Added regression coverage in `evals/tests/campaign_test.py` proving an existing campaign survives a timestamp collision.
+- Verification run:
+  - `cd evals && uv run pytest -q tests/campaign_test.py`
+  - `cd evals && uv run pytest -q -m 'not integration'`
+  - `git diff --check`
+
+Remaining from reviewer: none from era 2 iteration 1.

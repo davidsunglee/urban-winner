@@ -1,6 +1,5 @@
 import json
 import os
-import shutil
 import socket
 import subprocess
 import sys
@@ -61,6 +60,18 @@ def _atomic_write_json(path: Path, obj: dict) -> None:
     os.rename(tmp_path, path)
 
 
+def _create_unique_campaign_dir(runs_dir: Path, ts: str) -> Path:
+    for attempt in range(1000):
+        name = ts if attempt == 0 else f"{ts}-{attempt}"
+        campaign_dir = runs_dir / name
+        try:
+            campaign_dir.mkdir()
+            return campaign_dir
+        except FileExistsError:
+            continue
+    raise FileExistsError(f"Could not create a unique campaign directory for {ts!r}")
+
+
 def eval_new(
     repo_root: Path,
     *,
@@ -72,12 +83,7 @@ def eval_new(
     runs_dir = repo_root / "runs"
     runs_dir.mkdir(parents=True, exist_ok=True)
 
-    ts = _now_iso()
-    campaign_dir = runs_dir / ts
-
-    if campaign_dir.exists():
-        shutil.rmtree(campaign_dir)
-    campaign_dir.mkdir(parents=True)
+    campaign_dir = _create_unique_campaign_dir(runs_dir, _now_iso())
 
     manifest = {
         "started_at": _iso_zulu(),
@@ -96,7 +102,7 @@ def eval_new(
     current_tmp = runs_dir / "CURRENT.tmp"
     if current_tmp.exists() or current_tmp.is_symlink():
         os.unlink(current_tmp)
-    os.symlink(ts, current_tmp)
+    os.symlink(campaign_dir.name, current_tmp)
     os.rename(current_tmp, current_path)
 
     return campaign_dir

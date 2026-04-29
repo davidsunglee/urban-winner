@@ -72,6 +72,30 @@ def test_eval_new_manifest_has_frameworks_and_cases(tmp_repo_root):
     assert manifest["cases"] == ["case-a"]
 
 
+def test_eval_new_preserves_existing_campaign_on_timestamp_collision(tmp_repo_root, monkeypatch):
+    monkeypatch.setattr("evals.campaign._now_iso", lambda: "2026-01-01T00-00-00")
+
+    first_campaign_dir = eval_new(
+        tmp_repo_root,
+        frameworks=["first"],
+        cases=["case-a"],
+        config_overrides={},
+    )
+    sentinel = first_campaign_dir / "sentinel.txt"
+    sentinel.write_text("do not delete")
+
+    second_campaign_dir = eval_new(
+        tmp_repo_root,
+        frameworks=["second"],
+        cases=["case-b"],
+        config_overrides={},
+    )
+
+    assert sentinel.exists(), "existing campaign data was deleted during name collision"
+    assert second_campaign_dir != first_campaign_dir
+    assert (second_campaign_dir / "manifest.json").exists()
+
+
 # --- current_campaign tests ---
 
 def test_current_campaign_returns_none_when_no_symlink(tmp_repo_root):
