@@ -148,6 +148,37 @@ def ensure_case_bare_repo(
     return bare_dir
 
 
+def _copy_fixture_for_unlocked_sync(fixture_dir: Path, dest: Path) -> None:
+    """Copy an unlocked fixture to a throwaway project root for ``uv sync``.
+
+    When a fixture has no uv.lock, ``uv sync`` may create one in its project
+    root. Fixture directories are harness inputs, so run the sync against a
+    temporary copy instead of letting uv write into the source fixture.
+    """
+    shutil.copytree(
+        fixture_dir,
+        dest,
+        ignore=shutil.ignore_patterns(".venv", ".git", "__pycache__"),
+    )
+
+
+def _run_uv_sync(sync_dir: Path, venv_dir: Path, *, frozen: bool) -> None:
+    cmd = ["uv", "sync", "--no-install-project"]
+    if frozen:
+        cmd.append("--frozen")
+
+    env = {**os.environ, "UV_PROJECT_ENVIRONMENT": str(venv_dir.resolve())}
+    result = subprocess.run(
+        cmd,
+        cwd=str(sync_dir),
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise WorkspaceError("uv sync failed", stderr=result.stderr)
+
+
 def ensure_case_venv(
     repo_root: Path,
     case_id: str,
@@ -172,20 +203,13 @@ def ensure_case_venv(
 
     cache_dir.mkdir(parents=True, exist_ok=True)
 
-    cmd = ["uv", "sync", "--no-install-project"]
     if (fixture_dir / "uv.lock").exists():
-        cmd.append("--frozen")
-
-    env = {**os.environ, "UV_PROJECT_ENVIRONMENT": str(venv_dir.resolve())}
-    result = subprocess.run(
-        cmd,
-        cwd=str(fixture_dir),
-        env=env,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        raise WorkspaceError("uv sync failed", stderr=result.stderr)
+        _run_uv_sync(fixture_dir, venv_dir, frozen=True)
+    else:
+        with tempfile.TemporaryDirectory(dir=cache_dir) as tmp_str:
+            sync_dir = Path(tmp_str) / "project"
+            _copy_fixture_for_unlocked_sync(fixture_dir, sync_dir)
+            _run_uv_sync(sync_dir, venv_dir, frozen=False)
 
     hash_file.write_text(lock_hash)
     return venv_dir

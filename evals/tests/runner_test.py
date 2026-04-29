@@ -1,3 +1,4 @@
+from dataclasses import replace
 import json
 import os
 import signal
@@ -442,7 +443,7 @@ def test_runner_misconfigured_when_framework_has_discovery_error(tmp_path):
 
 
 def test_runner_misconfigured_when_setup_fail_exists(fake_framework_dir, tmp_path):
-    fw = _fake_framework_spec(fake_framework_dir)
+    fw = replace(_fake_framework_spec(fake_framework_dir), setup="./setup.sh")
     case = _make_case(tmp_path)
     cell_dir = tmp_path / "cell"
     cell_dir.mkdir()
@@ -464,6 +465,34 @@ def test_runner_misconfigured_when_setup_fail_exists(fake_framework_dir, tmp_pat
     assert result.error_reason == "framework_misconfigured"
     # No subprocess spawned: stdout.log must be empty.
     assert (cell_dir / "stdout.log").stat().st_size == 0
+
+
+def test_runner_ignores_stale_setup_fail_when_framework_declares_no_setup(
+    fake_framework_dir, tmp_path
+):
+    fw = _fake_framework_spec(fake_framework_dir)
+    case = _make_case(tmp_path)
+    cell_dir = tmp_path / "cell"
+    cell_dir.mkdir()
+    cache_dir = tmp_path / "cache"
+    setup_dir = cache_dir / "setup"
+    setup_dir.mkdir(parents=True)
+    (setup_dir / f"{fw.name}.fail").write_text('{"reason":"old setup removed"}')
+
+    result = run_cell(
+        framework=fw,
+        case=case,
+        effective_config=_effective(),
+        cell_dir=cell_dir,
+        cache_dir=cache_dir,
+        repo_root=tmp_path,
+        base_env={**BASE_ENV, "FAKE_BEHAVIOR": "success-noop"},
+        dotenv=DOTENV,
+    )
+
+    assert result.error_reason is None
+    assert result.exit_code == 0
+    assert (cell_dir / "response.json").exists()
 
 
 def test_resolve_effective_config_per_field_sources(tmp_path):

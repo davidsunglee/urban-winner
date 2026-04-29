@@ -83,4 +83,16 @@
   - `cd evals && uv run pytest -q tests/runner_test.py::test_runner_timeout_covers_blocked_stdin_write tests/runner_test.py`
   - `cd evals && uv run pytest -q`
 
-Remaining from reviewer: uv.lock-less case venv idempotence, stale setup `.fail` handling, pytest edit constraints, `eval` manifest scoping, and case discovery error surfacing.
+**Batch 2: workspace/CLI/case hardening**
+- Fixed `evals/evals/workspace.py` so cases without a committed `uv.lock` sync from a temporary copy, avoiding fixture mutation and repeated venv rebuilds.
+- Fixed stale setup `.fail` handling so runners only honor setup-failure sentinels for frameworks that still declare `setup`.
+- Added a case-level edit-constraint override for `cases/pytest-dev__pytest-7571.json` so the intended fix in `src/_pytest/logging.py` is allowed while test-file edits remain blocked.
+- Fixed `cmd_eval()` to reject framework/case values outside the current campaign manifest matrix.
+- Fixed eval commands to fail loudly on case discovery errors instead of silently omitting malformed cases.
+- Added regression coverage in `evals/tests/workspace_test.py`, `evals/tests/runner_test.py`, `evals/tests/pipeline_test.py`, and `evals/tests/cli_test.py`.
+- Verification run:
+  - `cd evals && uv run pytest -q tests/workspace_test.py tests/runner_test.py tests/pipeline_test.py tests/cli_test.py`
+  - `cd evals && uv run pytest -q`
+  - `git diff --check`
+
+Remaining from reviewer: none from era 6 iteration 1.

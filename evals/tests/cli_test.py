@@ -57,6 +57,10 @@ def _write_good_case(repo: Path, fixture_dir: Path, case_id: str = "case-001") -
     )
 
 
+def _write_malformed_case(repo: Path, name: str = "broken-case") -> None:
+    (repo / "cases" / f"{name}.json").write_text("{ this is not valid json")
+
+
 def test_cmd_eval_new_includes_malformed_framework_in_matrix(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -81,6 +85,77 @@ def test_cmd_eval_new_includes_malformed_framework_in_matrix(
     assert "broken" in manifest["frameworks"], (
         "malformed framework was silently dropped from the campaign matrix"
     )
+
+
+def test_eval_new_fails_on_case_discovery_errors(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    _write_good_framework(repo)
+    fixture = tmp_path / "fixture"
+    fixture.mkdir()
+    _write_good_case(repo, fixture)
+    _write_malformed_case(repo)
+
+    monkeypatch.setattr(cli, "_repo_root", lambda: repo)
+    args = cli._build_parser().parse_args(["eval-new"])
+    rc = cli.cmd_eval_new(args)
+
+    assert rc == 1
+    assert "broken-case" in capsys.readouterr().err
+    assert not (repo / "runs" / "CURRENT").exists()
+
+
+def test_eval_prepare_fails_on_case_discovery_errors_before_prepare(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    _write_good_framework(repo)
+    fixture = tmp_path / "fixture"
+    fixture.mkdir()
+    _write_good_case(repo, fixture)
+    _write_malformed_case(repo)
+
+    monkeypatch.setattr(cli, "_repo_root", lambda: repo)
+    prepare_called = False
+
+    def fake_prepare(**_kwargs):
+        nonlocal prepare_called
+        prepare_called = True
+        return cli._PrepareResult(summary=[], failed=False, case_failed=False)
+
+    monkeypatch.setattr(cli, "_do_prepare", fake_prepare)
+    args = cli._build_parser().parse_args(["eval-prepare"])
+    rc = cli.cmd_eval_prepare(args)
+
+    assert rc == 1
+    assert prepare_called is False
+    assert "broken-case" in capsys.readouterr().err
+
+
+def test_eval_all_fails_on_case_discovery_errors_before_campaign_creation(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    _write_good_framework(repo)
+    fixture = tmp_path / "fixture"
+    fixture.mkdir()
+    _write_good_case(repo, fixture)
+    _write_malformed_case(repo)
+
+    monkeypatch.setattr(cli, "_repo_root", lambda: repo)
+    monkeypatch.setattr(cli, "_prepare_needed", lambda *_args: False)
+    monkeypatch.setattr(cli, "_run_one_cell", lambda **_kwargs: None)
+    monkeypatch.setattr(cli, "write_report", lambda _campaign_dir: None)
+    args = cli._build_parser().parse_args(["eval-all"])
+    rc = cli.cmd_eval_all(args)
+
+    assert rc == 1
+    assert "broken-case" in capsys.readouterr().err
+    assert not (repo / "runs" / "CURRENT").exists()
 
 
 def test_cmd_eval_new_accepts_force_unlock_for_current_campaign_lock(
@@ -480,6 +555,84 @@ def test_eval_all_continues_after_framework_setup_failure(
 
     assert rc == 0
     assert attempted_cells == [("setup-fw", "case-001")]
+
+
+def test_eval_rejects_framework_outside_current_campaign_matrix(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    _write_good_framework(repo, name="good")
+    fixture = tmp_path / "fixture"
+    fixture.mkdir()
+    _write_good_case(repo, fixture)
+    campaign_dir = cli.eval_new(
+        repo,
+        frameworks=["good"],
+        cases=["case-001"],
+        config_overrides={},
+    )
+    _write_good_framework(repo, name="late-fw")
+
+    monkeypatch.setattr(cli, "_repo_root", lambda: repo)
+    monkeypatch.setattr(cli, "_prepare_needed", lambda *_args: False)
+    attempted_cells: list[tuple[str, str]] = []
+
+    def fake_run_one_cell(**kwargs):
+        attempted_cells.append((kwargs["fw"].name, kwargs["case"].case_id))
+
+    monkeypatch.setattr(cli, "_run_one_cell", fake_run_one_cell)
+    monkeypatch.setattr(cli, "write_report", lambda _campaign_dir: None)
+
+    args = cli._build_parser().parse_args(["eval", "late-fw", "case-001"])
+    rc = cli.cmd_eval(args)
+
+    assert rc == 2
+    assert attempted_cells == []
+    assert not (campaign_dir / "late-fw").exists()
+    err = capsys.readouterr().err
+    assert "current campaign" in err
+    assert "late-fw" in err
+
+
+def test_eval_rejects_case_outside_current_campaign_matrix(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    _write_good_framework(repo, name="good")
+    fixture = tmp_path / "fixture"
+    fixture.mkdir()
+    _write_good_case(repo, fixture, case_id="case-001")
+    campaign_dir = cli.eval_new(
+        repo,
+        frameworks=["good"],
+        cases=["case-001"],
+        config_overrides={},
+    )
+    late_fixture = tmp_path / "late-fixture"
+    late_fixture.mkdir()
+    _write_good_case(repo, late_fixture, case_id="late-case")
+
+    monkeypatch.setattr(cli, "_repo_root", lambda: repo)
+    monkeypatch.setattr(cli, "_prepare_needed", lambda *_args: False)
+    attempted_cells: list[tuple[str, str]] = []
+
+    def fake_run_one_cell(**kwargs):
+        attempted_cells.append((kwargs["fw"].name, kwargs["case"].case_id))
+
+    monkeypatch.setattr(cli, "_run_one_cell", fake_run_one_cell)
+    monkeypatch.setattr(cli, "write_report", lambda _campaign_dir: None)
+
+    args = cli._build_parser().parse_args(["eval", "good", "late-case"])
+    rc = cli.cmd_eval(args)
+
+    assert rc == 2
+    assert attempted_cells == []
+    assert not (campaign_dir / "good" / "late-case").exists()
+    err = capsys.readouterr().err
+    assert "current campaign" in err
+    assert "late-case" in err
 
 
 def test_eval_auto_prepares_selected_cell_when_cache_missing(

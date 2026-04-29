@@ -4,6 +4,18 @@
   "failing_test_command": "uv run pytest -q testing/logging/test_fixture.py::test_change_level_undos_handler_level",
   "failure_output_path": "cases/pytest-dev__pytest-7571.failure_output.txt",
   "hidden_test_command": "uv run pytest -q testing/logging/test_fixture.py --deselect testing/logging/test_fixture.py::test_change_level_undos_handler_level",
-  "edit_constraints": {},
+  "edit_constraints": {
+    "disallowed_paths": [
+      "tests/**",
+      "testing/**",
+      "**/test_*.py",
+      "**/*_test.py",
+      "**/conftest.py",
+      "**/*fixture*",
+      "**/*lock*",
+      "**/CHANGELOG*",
+      ".git/**"
+    ]
+  },
   "notes": "Source: SWE-bench Verified, instance pytest-dev__pytest-7571, base_commit 422685d0bdc110547535036c1ff398b5e1c44145, upstream https://github.com/pytest-dev/pytest. Single FAIL_TO_PASS test triggers PASS_TO_PASS fallback: hidden subset = all 14 other tests in testing/logging/test_fixture.py (the complete P2P set), selected via --deselect on the visible test. Bug requires three coordinated edits in src/_pytest/logging.py: (1) add _initial_handler_level = None to __init__, (2) add if self._initial_handler_level is not None: self.handler.setLevel(self._initial_handler_level) in _finalize before the logger loop, (3) add self._initial_handler_level = self.handler.level in set_level before self.handler.setLevel(level). Under-fix pattern the hidden tests catch: restoring the handler level (satisfying the visible test) but omitting the logger level restore in _finalize — specifically, removing the for-loop that calls logger.setLevel(level) for each saved logger. This causes test_change_level_undo to fail: test2 in the subprocess captures 'log from test2' at INFO level because the root logger level from test1 was not restored to WARNING, even though the handler was reset. uv overlay required: yes — upstream pyproject.toml lacked a [project] section (only had [build-system] with setuptools-scm, which requires git tags for version inference). Replaced build backend with hatchling using [tool.hatch.build.targets.wheel] packages = ['src/_pytest', 'src/pytest'] and added [project.scripts] pytest = 'pytest:console_main'. Python version pinned to >=3.11,<3.12 because Python 3.12+ triggers a different AST validation error (alias lineno/col_offset required). Four compat edits to src/_pytest/assertion/rewrite.py for Python 3.10+ AST compatibility: (a) ast.fix_missing_locations(tree) added before compile in _rewrite_test, (b) set_location() updated to also set end_lineno/end_col_offset when missing, (c) alias nodes and Import nodes in visit_Module updated to carry lineno/col_offset/end_lineno/end_col_offset explicitly, (d) _fix_end_locations() helper added (and called in _rewrite_test) to walk the tree and correct any end_lineno < lineno after fix_missing_locations. Stub src/_pytest/_version.py added (setuptools-scm generates this from git tags, not available without git). Important: do NOT invoke setup.py directly (e.g. `pip install -e .`) — it still uses setuptools-scm and would overwrite the _version.py stub. Use `uv sync` only."
 }

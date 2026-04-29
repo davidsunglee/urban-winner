@@ -231,6 +231,48 @@ def test_ensure_case_venv_rebuilds_when_hash_file_matches_but_venv_missing(tmp_p
     assert calls == [["uv", "sync", "--no-install-project"]]
 
 
+def test_ensure_case_venv_without_uv_lock_does_not_mutate_fixture_or_rebuild(
+    tmp_path, monkeypatch
+):
+    fixture_dir = tmp_path / "fixture"
+    fixture_dir.mkdir()
+    (fixture_dir / "pyproject.toml").write_text(
+        "[project]\nname = 'fixture'\nversion = '0.0.0'\nrequires-python = '>=3.11'\n"
+    )
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    calls: list[tuple[list[str], Path]] = []
+
+    def fake_run(cmd, *, cwd, env, capture_output, text):
+        calls.append((list(cmd), Path(cwd)))
+        Path(env["UV_PROJECT_ENVIRONMENT"]).mkdir(parents=True)
+        # Simulate uv generating a lockfile in the project root it syncs from.
+        (Path(cwd) / "uv.lock").write_text("generated lock\n")
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    venv1 = ensure_case_venv(
+        repo_root=tmp_path,
+        case_id="case",
+        fixture_dir=fixture_dir,
+        cache_dir=cache,
+    )
+    cached_hash = (cache / "case.lock-hash").read_text().strip()
+    venv2 = ensure_case_venv(
+        repo_root=tmp_path,
+        case_id="case",
+        fixture_dir=fixture_dir,
+        cache_dir=cache,
+    )
+
+    assert venv1 == venv2 == cache / "case.venv"
+    assert len(calls) == 1, "second call should reuse the venv when pyproject is unchanged"
+    assert calls[0][0] == ["uv", "sync", "--no-install-project"]
+    assert not (fixture_dir / "uv.lock").exists(), "uv sync must not mutate fixture inputs"
+    assert cached_hash == compute_lock_hash(fixture_dir)
+
+
 def test_ensure_case_bare_repo_uses_manifest_fixture_dir(tmp_path):
     repo, _case_id = _make_fixture_repo(tmp_path, case_id="fixture-dir")
     cache = tmp_path / "cache"

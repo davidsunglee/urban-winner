@@ -201,7 +201,7 @@ def run_cell(
         runnable, reason = _entry_is_runnable(framework)
         if not runnable:
             misconfig_reason = reason
-        elif is_setup_failed(framework.name, cache_dir):
+        elif framework.setup is not None and is_setup_failed(framework.name, cache_dir):
             misconfig_reason = "setup .fail sentinel exists"
 
     if misconfig_reason is not None:

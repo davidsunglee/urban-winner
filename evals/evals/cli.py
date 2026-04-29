@@ -46,6 +46,17 @@ def _campaign_overrides(campaign_dir: Path) -> dict:
     return {k: v for k, v in raw.items() if v is not None}
 
 
+def _report_case_discovery_errors(errors) -> bool:
+    if not errors:
+        return False
+    for err in errors:
+        print(
+            f"error: case {err.name} skipped: {'; '.join(err.messages)}",
+            file=sys.stderr,
+        )
+    return True
+
+
 @dataclass(frozen=True)
 class _PrepareResult:
     summary: list[str]
@@ -249,7 +260,9 @@ def cmd_cases(args) -> int:
 def cmd_eval_prepare(args) -> int:
     repo_root = _repo_root()
     frameworks, _ = discover_frameworks(repo_root)
-    cases, _ = discover_cases(repo_root)
+    cases, case_errors = discover_cases(repo_root)
+    if _report_case_discovery_errors(case_errors):
+        return 1
     cache_dir = repo_root / ".runs-cache"
     base_env = os.environ.copy()
     dotenv = load_dotenv(repo_root)
@@ -271,7 +284,9 @@ def cmd_eval_prepare(args) -> int:
 def cmd_eval_new(args) -> int:
     repo_root = _repo_root()
     frameworks, _ = discover_frameworks(repo_root)
-    cases, _ = discover_cases(repo_root)
+    cases, case_errors = discover_cases(repo_root)
+    if _report_case_discovery_errors(case_errors):
+        return 1
     overrides = {
         "model": args.model,
         "timeout_s": args.timeout_s,
@@ -292,7 +307,9 @@ def cmd_eval_new(args) -> int:
 def cmd_eval_all(args) -> int:
     repo_root = _repo_root()
     frameworks, _ = discover_frameworks(repo_root)
-    cases, _ = discover_cases(repo_root)
+    cases, case_errors = discover_cases(repo_root)
+    if _report_case_discovery_errors(case_errors):
+        return 1
 
     # Fail fast on unknown filter values so typos like `--framework caude`
     # don't silently no-op (and don't trigger campaign creation / prepare).
@@ -395,7 +412,9 @@ def cmd_eval_all(args) -> int:
 def cmd_eval(args) -> int:
     repo_root = _repo_root()
     frameworks, _ = discover_frameworks(repo_root)
-    cases, _ = discover_cases(repo_root)
+    cases, case_errors = discover_cases(repo_root)
+    if _report_case_discovery_errors(case_errors):
+        return 1
 
     fw = next((f for f in frameworks if f.name == args.framework), None)
     case = next((c for c in cases if c.case_id == args.case), None)
@@ -413,7 +432,22 @@ def cmd_eval(args) -> int:
         print("no current campaign; run 'eval-new' first", file=sys.stderr)
         return 2
 
-    campaign_overrides = _campaign_overrides(campaign_dir)
+    manifest = json.loads((campaign_dir / "manifest.json").read_text())
+    if fw.name not in manifest.get("frameworks", []):
+        print(
+            f"framework {fw.name!r} is not in the current campaign matrix",
+            file=sys.stderr,
+        )
+        return 2
+    if case.case_id not in manifest.get("cases", []):
+        print(
+            f"case {case.case_id!r} is not in the current campaign matrix",
+            file=sys.stderr,
+        )
+        return 2
+
+    raw_overrides = manifest.get("config_overrides", {})
+    campaign_overrides = {k: v for k, v in raw_overrides.items() if v is not None}
     base_env = os.environ.copy()
     dotenv = load_dotenv(repo_root)
     cache_dir = repo_root / ".runs-cache"

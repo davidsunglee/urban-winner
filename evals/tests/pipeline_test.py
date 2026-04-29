@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 import evals.pipeline as pipeline_module
-from evals.discovery import CaseSpec, FrameworkSpec
+from evals.discovery import CaseSpec, FrameworkSpec, discover_cases
 from evals.env import build_test_env
 from evals.pipeline import (
     assemble_scoring,
@@ -347,6 +347,20 @@ def test_edit_constraint_max_files_over_threshold():
     files = [f"pkg/file{i}.py" for i in range(6)]
     out = check_edit_constraints(files, constraints)
     assert out["over_max_changed_files"] is True
+
+
+def test_pytest_case_constraints_allow_real_fix_but_still_block_tests(repo_root):
+    cases, errors = discover_cases(repo_root)
+    assert errors == []
+    case = next(c for c in cases if c.case_id == "pytest-dev__pytest-7571")
+    constraints = pipeline_module._resolve_edit_constraints(case.edit_constraints)
+
+    out = check_edit_constraints(
+        ["src/_pytest/logging.py", "testing/logging/test_fixture.py"], constraints
+    )
+
+    assert "src/_pytest/logging.py" not in out["disallowed_violations"]
+    assert "testing/logging/test_fixture.py" in out["disallowed_violations"]
 
 
 # ---------------------------------------------------------------------------
