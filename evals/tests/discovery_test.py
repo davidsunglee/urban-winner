@@ -81,8 +81,15 @@ def test_discover_frameworks_reports_malformed(tmp_path: Path) -> None:
 
     specs, errors = discover_frameworks(repo)
 
-    assert specs == []
-    assert len(errors) > 0
+    # Malformed manifests must surface as a placeholder spec carrying a
+    # discovery_error so the campaign matrix can render a
+    # `framework_misconfigured` cell instead of silently dropping it.
+    assert len(specs) == 1
+    assert specs[0].name == "z"
+    assert specs[0].discovery_error is not None
+    assert specs[0].discovery_error.kind == "framework"
+    assert any("invalid JSON" in m for m in specs[0].discovery_error.messages)
+    assert len(errors) == 1
     assert errors[0].kind == "framework"
     assert errors[0].name == "z"
 
@@ -93,8 +100,13 @@ def test_discover_frameworks_reports_missing_entry(tmp_path: Path) -> None:
 
     specs, errors = discover_frameworks(repo)
 
-    assert specs == []
-    assert len(errors) > 0
+    # Schema-violating manifests also surface as placeholder specs; the
+    # campaign must include them so they render as misconfigured cells.
+    assert len(specs) == 1
+    assert specs[0].name == "bad"
+    assert specs[0].discovery_error is not None
+    assert any("missing required key: entry" in m for m in specs[0].discovery_error.messages)
+    assert len(errors) == 1
     assert errors[0].kind == "framework"
 
 
@@ -183,6 +195,34 @@ def test_discover_cases_rejects_both_failure_output_forms(tmp_path: Path) -> Non
     assert specs == []
     assert len(errors) > 0
     assert errors[0].kind == "case"
+
+
+def test_discover_cases_missing_failure_output_path_is_structured_error(
+    tmp_path: Path,
+) -> None:
+    """A failure_output_path that points at a missing file must produce a
+    structured DiscoveryError, not crash discovery with FileNotFoundError."""
+    repo = _isolated_repo_root(tmp_path)
+    fixture_dir = tmp_path / "fixture"
+    fixture_dir.mkdir()
+    _write_case(
+        repo,
+        "case-missing-fop",
+        {
+            "case_id": "case-missing-fop",
+            "fixture_repo": str(fixture_dir),
+            "failing_test_command": "pytest",
+            "failure_output_path": str(tmp_path / "does" / "not" / "exist.txt"),
+        },
+    )
+
+    specs, errors = discover_cases(repo)
+
+    assert specs == []
+    assert len(errors) == 1
+    assert errors[0].kind == "case"
+    assert errors[0].name == "case-missing-fop"
+    assert any("failure_output_path" in m for m in errors[0].messages)
 
 
 def test_discover_cases_handles_missing_executable_entry(tmp_path: Path) -> None:

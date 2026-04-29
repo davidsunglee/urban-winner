@@ -192,12 +192,17 @@ def run_cell(
     task_id = f"{framework.name}:{case.case_id}:{uuid4().hex[:8]}"
 
     # Pre-check framework misconfiguration.
-    runnable, reason = _entry_is_runnable(framework)
     misconfig_reason: str | None = None
-    if not runnable:
-        misconfig_reason = reason
-    elif is_setup_failed(framework.name, cache_dir):
-        misconfig_reason = "setup .fail sentinel exists"
+    if framework.discovery_error is not None:
+        misconfig_reason = (
+            "manifest invalid: " + "; ".join(framework.discovery_error.messages)
+        )
+    else:
+        runnable, reason = _entry_is_runnable(framework)
+        if not runnable:
+            misconfig_reason = reason
+        elif is_setup_failed(framework.name, cache_dir):
+            misconfig_reason = "setup .fail sentinel exists"
 
     if misconfig_reason is not None:
         stdout_path.write_bytes(b"")

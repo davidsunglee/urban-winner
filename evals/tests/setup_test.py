@@ -154,6 +154,75 @@ def test_run_framework_setup_retries_clear_prior_fail(tmp_path):
     assert not (setup_dir / f"{spec.name}.fail").exists()
 
 
+def test_run_framework_setup_handles_shell_parse_error(tmp_path):
+    """shlex.split() on a malformed setup string must surface as a SetupResult
+    with status=failed (not propagate ValueError up the stack)."""
+    spec = make_spec(tmp_path, setup='echo "unterminated quote', name="parse-bad")
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+    result = run_framework_setup(
+        spec, cache_dir=cache_dir, base_env=BASE_ENV, dotenv=DOTENV, timeout_s=30
+    )
+    assert result.status == "failed"
+    assert result.exit_code is None
+    fail_path = cache_dir / "setup" / f"{spec.name}.fail"
+    assert fail_path.exists()
+    fail_data = json.loads(fail_path.read_text())
+    assert fail_data["reason"] == result.reason
+    # Diagnostic stderr log is captured for the user.
+    stderr_log = cache_dir / "setup" / f"{spec.name}.stderr.log"
+    assert stderr_log.exists()
+    assert "parse" in stderr_log.read_text().lower() or "quote" in stderr_log.read_text().lower()
+    assert not (cache_dir / "setup" / f"{spec.name}.ok").exists()
+
+
+def test_run_framework_setup_handles_spawn_error(tmp_path):
+    """A nonexistent executable must surface as a SetupResult with status=failed,
+    not propagate FileNotFoundError up the stack."""
+    spec = make_spec(
+        tmp_path,
+        setup="/this/binary/definitely/does/not/exist --flag",
+        name="spawn-bad",
+    )
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+    result = run_framework_setup(
+        spec, cache_dir=cache_dir, base_env=BASE_ENV, dotenv=DOTENV, timeout_s=30
+    )
+    assert result.status == "failed"
+    assert result.exit_code is None
+    fail_path = cache_dir / "setup" / f"{spec.name}.fail"
+    assert fail_path.exists()
+    stderr_log = cache_dir / "setup" / f"{spec.name}.stderr.log"
+    assert stderr_log.exists()
+    assert stderr_log.read_text()  # has diagnostic content
+    assert not (cache_dir / "setup" / f"{spec.name}.ok").exists()
+
+
+def test_run_all_setups_continues_past_spawn_errors(tmp_path):
+    """A spawn failure on one framework must not abort run_all_setups."""
+    spec_bad = make_spec(
+        tmp_path,
+        setup="/this/binary/does/not/exist",
+        name="fw-spawn-bad",
+    )
+    spec_ok = make_spec(tmp_path, setup='sh -c "exit 0"', name="fw-after-bad")
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+    results = run_all_setups(
+        [spec_bad, spec_ok],
+        cache_dir=cache_dir,
+        base_env=BASE_ENV,
+        dotenv=DOTENV,
+        timeout_s=30,
+    )
+    assert len(results) == 2
+    assert results[0].status == "failed"
+    assert results[1].status == "ok"
+    assert (cache_dir / "setup" / f"{spec_bad.name}.fail").exists()
+    assert (cache_dir / "setup" / f"{spec_ok.name}.ok").exists()
+
+
 def test_run_all_setups_continues_past_failures(tmp_path):
     spec_fail = make_spec(tmp_path, setup='sh -c "exit 1"', name="fw-fail")
     spec_ok = make_spec(tmp_path, setup='sh -c "exit 0"', name="fw-ok")

@@ -6,6 +6,14 @@ from evals.schemas import validate_case_manifest, validate_framework_manifest
 
 
 @dataclass(frozen=True)
+class DiscoveryError:
+    kind: str  # "framework" | "case"
+    name: str
+    manifest_path: Path
+    messages: list[str]
+
+
+@dataclass(frozen=True)
 class FrameworkSpec:
     name: str
     dir: Path
@@ -14,6 +22,11 @@ class FrameworkSpec:
     setup: str | None
     env_keys: list[str]
     model: str
+    # When set, the manifest could not be loaded/validated. The spec is a
+    # placeholder so the framework still appears in the campaign matrix and
+    # surfaces as a `framework_misconfigured` cell instead of being silently
+    # dropped from discovery.
+    discovery_error: "DiscoveryError | None" = None
 
 
 @dataclass(frozen=True)
@@ -28,14 +41,6 @@ class CaseSpec:
     notes: str | None
 
 
-@dataclass(frozen=True)
-class DiscoveryError:
-    kind: str  # "framework" | "case"
-    name: str
-    manifest_path: Path
-    messages: list[str]
-
-
 def discover_frameworks(
     repo_root: Path,
 ) -> tuple[list[FrameworkSpec], list[DiscoveryError]]:
@@ -45,6 +50,25 @@ def discover_frameworks(
 
     if not frameworks_dir.is_dir():
         return [], []
+
+    def _placeholder(name: str, manifest_path: Path, messages: list[str]) -> FrameworkSpec:
+        err = DiscoveryError(
+            kind="framework",
+            name=name,
+            manifest_path=manifest_path,
+            messages=messages,
+        )
+        errors.append(err)
+        return FrameworkSpec(
+            name=name,
+            dir=manifest_path.parent,
+            manifest_path=manifest_path,
+            entry="",
+            setup=None,
+            env_keys=[],
+            model="",
+            discovery_error=err,
+        )
 
     for fw_dir in sorted(frameworks_dir.iterdir()):
         if not fw_dir.is_dir():
@@ -56,26 +80,12 @@ def discover_frameworks(
         try:
             raw = json.loads(manifest_path.read_text())
         except json.JSONDecodeError as exc:
-            errors.append(
-                DiscoveryError(
-                    kind="framework",
-                    name=fw_dir.name,
-                    manifest_path=manifest_path,
-                    messages=[f"invalid JSON: {exc}"],
-                )
-            )
+            specs.append(_placeholder(fw_dir.name, manifest_path, [f"invalid JSON: {exc}"]))
             continue
 
         messages = validate_framework_manifest(raw)
         if messages:
-            errors.append(
-                DiscoveryError(
-                    kind="framework",
-                    name=fw_dir.name,
-                    manifest_path=manifest_path,
-                    messages=messages,
-                )
-            )
+            specs.append(_placeholder(fw_dir.name, manifest_path, messages))
             continue
 
         specs.append(
@@ -137,7 +147,18 @@ def discover_cases(
             fop = Path(raw["failure_output_path"])
             if not fop.is_absolute():
                 fop = repo_root / fop
-            failure_output = fop.read_text(encoding="utf-8", errors="replace")
+            try:
+                failure_output = fop.read_text(encoding="utf-8", errors="replace")
+            except OSError as exc:
+                errors.append(
+                    DiscoveryError(
+                        kind="case",
+                        name=raw.get("case_id", case_path.stem),
+                        manifest_path=case_path,
+                        messages=[f"failure_output_path unreadable ({fop}): {exc}"],
+                    )
+                )
+                continue
 
         # Resolve fixture_repo to absolute
         fixture_repo = Path(raw["fixture_repo"])

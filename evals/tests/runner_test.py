@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from evals.discovery import CaseSpec, FrameworkSpec
+from evals.discovery import CaseSpec, DiscoveryError, FrameworkSpec
 from evals.runner import (
     EffectiveConfig,
     resolve_effective_config,
@@ -234,6 +234,50 @@ def test_runner_misconfigured_when_entry_missing(tmp_path):
     assert (cell_dir / "stdout.log").exists()
     assert (cell_dir / "stdout.log").stat().st_size == 0
     assert (cell_dir / "stderr.log").exists()
+    assert "framework_misconfigured" in (cell_dir / "stderr.log").read_text()
+
+
+def test_runner_misconfigured_when_framework_has_discovery_error(tmp_path):
+    """A FrameworkSpec carrying a discovery_error must short-circuit to
+    framework_misconfigured without spawning a subprocess."""
+    fw_dir = tmp_path / "broken-fw"
+    fw_dir.mkdir()
+    manifest = fw_dir / "manifest.json"
+    err = DiscoveryError(
+        kind="framework",
+        name="broken-fw",
+        manifest_path=manifest,
+        messages=["invalid JSON: Expecting value"],
+    )
+    fw = FrameworkSpec(
+        name="broken-fw",
+        dir=fw_dir,
+        manifest_path=manifest,
+        entry="",
+        setup=None,
+        env_keys=[],
+        model="",
+        discovery_error=err,
+    )
+    case = _make_case(tmp_path)
+    cell_dir = tmp_path / "cell"
+    cell_dir.mkdir()
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+    result = run_cell(
+        framework=fw,
+        case=case,
+        effective_config=_effective(),
+        cell_dir=cell_dir,
+        cache_dir=cache_dir,
+        repo_root=tmp_path,
+        base_env=BASE_ENV,
+        dotenv=DOTENV,
+    )
+    assert result.error_reason == "framework_misconfigured"
+    assert result.framework_misconfigured_reason is not None
+    assert "invalid JSON" in result.framework_misconfigured_reason
+    assert (cell_dir / "stdout.log").stat().st_size == 0
     assert "framework_misconfigured" in (cell_dir / "stderr.log").read_text()
 
 

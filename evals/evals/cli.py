@@ -94,6 +94,8 @@ def _run_one_cell(
 
 def _prepare_needed(repo_root: Path, frameworks, cases, cache_dir: Path) -> bool:
     for fw in frameworks:
+        if fw.discovery_error is not None:
+            continue  # misconfigured manifest; setup not runnable
         if fw.setup is None:
             continue
         ok_path = cache_dir / "setup" / f"{fw.name}.ok"
@@ -142,6 +144,12 @@ def _do_prepare(
             summary.append(f"case {case.case_id}: venv FAIL: {exc}")
 
     for fw in frameworks:
+        if fw.discovery_error is not None:
+            failed = True
+            summary.append(
+                f"framework {fw.name}: misconfigured ({'; '.join(fw.discovery_error.messages)})"
+            )
+            continue
         if fw.setup is None:
             summary.append(f"framework {fw.name}: skipped (no setup)")
             continue
@@ -168,10 +176,13 @@ def cmd_frameworks(args) -> int:
     repo_root = _repo_root()
     specs, errors = discover_frameworks(repo_root)
     for spec in specs:
-        print(spec.name)
+        if spec.discovery_error is not None:
+            print(f"{spec.name}\t(misconfigured)")
+        else:
+            print(spec.name)
     for err in errors:
         print(
-            f"warning: framework {err.name} skipped: {'; '.join(err.messages)}",
+            f"warning: framework {err.name} misconfigured: {'; '.join(err.messages)}",
             file=sys.stderr,
         )
     return 0

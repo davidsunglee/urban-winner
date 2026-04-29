@@ -20,7 +20,8 @@ _CAP_BYTES = 5 * 1024 * 1024
 class SetupResult:
     framework: str
     status: str  # "ok" | "skipped" | "failed"
-    reason: str | None  # "nonzero_exit" | "timeout" | None
+    # "nonzero_exit" | "timeout" | "parse_error" | "spawn_error" | None
+    reason: str | None
     exit_code: int | None
     stdout_truncated: bool
     stderr_truncated: bool
@@ -73,6 +74,45 @@ def _manifest_hash(spec: FrameworkSpec) -> str:
     return ""
 
 
+def _record_pre_exec_failure(
+    spec: FrameworkSpec,
+    *,
+    reason: str,
+    message: str,
+    stdout_log: Path,
+    stderr_log: Path,
+    fail_path: Path,
+    started_at: str,
+    t0: float,
+) -> "SetupResult":
+    """Record a setup failure that occurred before the child process executed
+    (shlex parse error, Popen OSError). Writes empty stdout.log, the diagnostic
+    to stderr.log, and a `.fail` sentinel; returns SetupResult(status="failed").
+    """
+    stdout_log.write_bytes(b"")
+    stderr_log.write_text(message)
+    ended_at = datetime.now(timezone.utc).isoformat()
+    duration_s = time.monotonic() - t0
+    content = json.dumps(
+        {
+            "reason": reason,
+            "exit_code": None,
+            "started_at": started_at,
+            "ended_at": ended_at,
+        }
+    )
+    _atomic_write(fail_path, content)
+    return SetupResult(
+        framework=spec.name,
+        status="failed",
+        reason=reason,
+        exit_code=None,
+        stdout_truncated=False,
+        stderr_truncated=False,
+        duration_s=duration_s,
+    )
+
+
 def run_framework_setup(
     spec: FrameworkSpec,
     *,
@@ -105,20 +145,47 @@ def run_framework_setup(
         base_env=base_env,
         dotenv=dotenv,
     )
-    cmd = shlex.split(spec.setup)
     stdout_log = setup_dir / f"{spec.name}.stdout.log"
     stderr_log = setup_dir / f"{spec.name}.stderr.log"
 
     started_at = datetime.now(timezone.utc).isoformat()
     t0 = time.monotonic()
 
-    proc = subprocess.Popen(
-        cmd,
-        cwd=str(spec.dir),
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
+    # Parse and spawn errors must surface as a `.fail` SetupResult, not
+    # propagate up the stack and abort `run_all_setups`.
+    try:
+        cmd = shlex.split(spec.setup)
+    except ValueError as exc:
+        return _record_pre_exec_failure(
+            spec,
+            reason="parse_error",
+            message=f"setup parse error (shlex): {exc}\ncommand: {spec.setup!r}\n",
+            stdout_log=stdout_log,
+            stderr_log=stderr_log,
+            fail_path=fail_path,
+            started_at=started_at,
+            t0=t0,
+        )
+
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=str(spec.dir),
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+    except OSError as exc:
+        return _record_pre_exec_failure(
+            spec,
+            reason="spawn_error",
+            message=f"setup spawn error: {exc}\ncommand: {spec.setup!r}\n",
+            stdout_log=stdout_log,
+            stderr_log=stderr_log,
+            fail_path=fail_path,
+            started_at=started_at,
+            t0=t0,
+        )
 
     stdout_truncated = False
     stderr_truncated = False

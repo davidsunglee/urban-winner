@@ -86,4 +86,16 @@
   - `cd evals && uv run pytest -q tests/env_test.py tests/integration/test_fake_framework.py`
   - `cd evals && uv run pytest -q tests/`
 
-Remaining from reviewer: malformed framework omission, stale prepare hashes, non-atomic campaign lock, uncaught setup exec failures, plus two minor findings.
+Remaining from reviewer: stale prepare hashes, non-atomic campaign lock, and `eval-all --framework/--case` typo handling.
+
+**Batch 2: misconfiguration surfacing + setup pre-exec failures**
+- Fixed malformed framework discovery so invalid manifests remain in the campaign matrix as placeholder specs and surface as `framework_misconfigured` cells instead of disappearing.
+- Fixed `discover_cases()` to convert unreadable `failure_output_path` files into structured `DiscoveryError` records.
+- Fixed `run_framework_setup()` pre-exec parse/spawn failures to emit diagnostic logs plus `.fail` sentinels and continue through `run_all_setups()`.
+- Added regression coverage in `evals/tests/discovery_test.py`, `evals/tests/setup_test.py`, `evals/tests/runner_test.py`, and new `evals/tests/cli_test.py`.
+- Verification run:
+  - `cd evals && uv run pytest -q tests/discovery_test.py tests/setup_test.py tests/runner_test.py tests/cli_test.py`
+  - `cd evals && uv run pytest -q tests/`
+  - `cd evals && uv run pytest -q -m integration`
+
+Remaining from reviewer: stale prepare hashes, non-atomic campaign lock, and `eval-all --framework/--case` typo handling.
