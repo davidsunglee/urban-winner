@@ -154,6 +154,54 @@ def test_run_framework_setup_retries_clear_prior_fail(tmp_path):
     assert not (setup_dir / f"{spec.name}.fail").exists()
 
 
+def test_run_framework_setup_skips_when_ok_fingerprint_is_fresh(tmp_path):
+    spec = make_spec(tmp_path, setup="./setup.sh")
+    script = spec.dir / "setup.sh"
+    script.write_text(
+        "#!/bin/sh\n"
+        "count_file=count.txt\n"
+        "n=0\n"
+        "if [ -f \"$count_file\" ]; then n=$(cat \"$count_file\"); fi\n"
+        "echo $((n + 1)) > \"$count_file\"\n"
+    )
+    script.chmod(0o755)
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+
+    first = run_framework_setup(
+        spec, cache_dir=cache_dir, base_env=BASE_ENV, dotenv=DOTENV, timeout_s=30
+    )
+    second = run_framework_setup(
+        spec, cache_dir=cache_dir, base_env=BASE_ENV, dotenv=DOTENV, timeout_s=30
+    )
+
+    assert first.status == "ok"
+    assert second.status == "skipped"
+    assert second.reason == "fresh"
+    assert (spec.dir / "count.txt").read_text().strip() == "1"
+
+
+def test_run_framework_setup_reruns_when_ok_fingerprint_is_stale(tmp_path):
+    spec = make_spec(tmp_path, setup="./setup.sh")
+    script = spec.dir / "setup.sh"
+    script.write_text("#!/bin/sh\necho v1 > token.txt\n")
+    script.chmod(0o755)
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+
+    first = run_framework_setup(
+        spec, cache_dir=cache_dir, base_env=BASE_ENV, dotenv=DOTENV, timeout_s=30
+    )
+    script.write_text("#!/bin/sh\necho v2 > token.txt\n")
+    second = run_framework_setup(
+        spec, cache_dir=cache_dir, base_env=BASE_ENV, dotenv=DOTENV, timeout_s=30
+    )
+
+    assert first.status == "ok"
+    assert second.status == "ok"
+    assert (spec.dir / "token.txt").read_text().strip() == "v2"
+
+
 def test_run_framework_setup_handles_shell_parse_error(tmp_path):
     """shlex.split() on a malformed setup string must surface as a SetupResult
     with status=failed (not propagate ValueError up the stack)."""

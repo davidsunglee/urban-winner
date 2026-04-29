@@ -9,7 +9,7 @@ import pytest
 
 from evals import cli
 from evals.discovery import discover_cases, discover_frameworks
-from evals.setup import SetupResult
+from evals.setup import SetupResult, run_framework_setup
 from evals.workspace import WorkspaceError
 
 
@@ -184,6 +184,58 @@ def test_prepare_needed_true_when_lock_hash_is_stale(tmp_path: Path) -> None:
 
     assert cli._prepare_needed(repo, frameworks, cases, cache) is True, (
         "lock-file mutation must trigger prepare; otherwise eval-all reuses a stale venv"
+    )
+
+
+def _make_repo_with_cached_setup(tmp_path: Path) -> tuple[Path, Path]:
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    fw = repo / "frameworks" / "setup-fw"
+    fw.mkdir()
+    (fw / "manifest.json").write_text(
+        json.dumps(
+            {"entry": "./run.py", "setup": "./setup.sh", "env": [], "model": "fake"}
+        )
+    )
+    (fw / "setup.sh").write_text("#!/bin/sh\nexit 0\n")
+    (fw / "setup.sh").chmod(0o755)
+    (fw / "pyproject.toml").write_text('[project]\nname="setup-fw"\nversion="0"\n')
+
+    cache = repo / ".runs-cache"
+    cache.mkdir()
+    frameworks, _ = discover_frameworks(repo)
+    result = run_framework_setup(
+        frameworks[0], cache_dir=cache, base_env=dict(), dotenv={}, timeout_s=30
+    )
+    assert result.status == "ok"
+    return repo, cache
+
+
+def test_prepare_needed_true_when_framework_setup_script_is_stale(
+    tmp_path: Path,
+) -> None:
+    repo, cache = _make_repo_with_cached_setup(tmp_path)
+    (repo / "frameworks" / "setup-fw" / "setup.sh").write_text(
+        "#!/bin/sh\necho changed\n"
+    )
+    frameworks, _ = discover_frameworks(repo)
+
+    assert cli._prepare_needed(repo, frameworks, [], cache) is True, (
+        "setup script changes must invalidate the cached framework setup"
+    )
+
+
+def test_prepare_needed_true_when_framework_dependency_file_is_stale(
+    tmp_path: Path,
+) -> None:
+    repo, cache = _make_repo_with_cached_setup(tmp_path)
+    (repo / "frameworks" / "setup-fw" / "pyproject.toml").write_text(
+        '[project]\nname="setup-fw"\nversion="1"\n'
+    )
+    frameworks, _ = discover_frameworks(repo)
+
+    assert cli._prepare_needed(repo, frameworks, [], cache) is True, (
+        "dependency file changes must invalidate the cached framework setup"
     )
 
 

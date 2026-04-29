@@ -88,4 +88,13 @@ Remaining from reviewer: setup idempotence/staleness, campaign timestamp collisi
   - `cd evals && uv run pytest -q tests/cli_test.py`
   - `cd evals && uv run pytest -q -m 'not integration'`
 
-Remaining from reviewer: setup idempotence/staleness, campaign timestamp collisions.
+**Batch 3: setup idempotence + staleness**
+- Added framework setup fingerprinting that covers the manifest, setup command, directly referenced setup script files, and common dependency/lock files.
+- Fixed `run_framework_setup()` to skip fresh `.ok` setups and retry only when setup state is missing, stale, or failed.
+- Fixed `_prepare_needed()` to treat stale setup fingerprints and `.fail` sentinels as needing prepare.
+- Added regression coverage in `evals/tests/setup_test.py` and `evals/tests/cli_test.py`.
+- Verification run:
+  - `cd evals && uv run pytest -q tests/setup_test.py tests/cli_test.py`
+  - `git diff --check`
+
+Remaining from reviewer: campaign timestamp collisions.

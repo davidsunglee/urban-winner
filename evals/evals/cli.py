@@ -1,5 +1,4 @@
 import argparse
-import hashlib
 import json
 import os
 import shutil
@@ -13,7 +12,7 @@ from evals.env import load_dotenv
 from evals.pipeline import run_pipeline
 from evals.report import write_report
 from evals.runner import resolve_effective_config, run_cell
-from evals.setup import run_framework_setup
+from evals.setup import run_framework_setup, setup_fingerprint
 from evals.status import print_status
 from evals.workspace import (
     clone_cell_worktree,
@@ -108,15 +107,19 @@ def _prepare_needed(repo_root: Path, frameworks, cases, cache_dir: Path) -> bool
             continue  # misconfigured manifest; setup not runnable
         if fw.setup is None:
             continue
-        ok_path = cache_dir / "setup" / f"{fw.name}.ok"
+        setup_dir = cache_dir / "setup"
+        ok_path = setup_dir / f"{fw.name}.ok"
+        fail_path = setup_dir / f"{fw.name}.fail"
+        if fail_path.exists():
+            return True
         if not ok_path.exists():
             return True
         try:
             data = json.loads(ok_path.read_text())
+            current_fingerprint = setup_fingerprint(fw)
         except Exception:
             return True
-        current_hash = hashlib.sha256(fw.manifest_path.read_bytes()).hexdigest()
-        if data.get("hash") != current_hash:
+        if (data.get("fingerprint") or data.get("hash")) != current_fingerprint:
             return True
     for case in cases:
         if not (cache_dir / f"{case.case_id}.git").exists():

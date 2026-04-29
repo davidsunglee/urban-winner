@@ -14,6 +14,24 @@ from evals.discovery import FrameworkSpec
 from evals.env import build_setup_env
 
 _CAP_BYTES = 5 * 1024 * 1024
+_DEPENDENCY_FILE_NAMES = (
+    "pyproject.toml",
+    "uv.lock",
+    "requirements.txt",
+    "requirements-dev.txt",
+    "setup.py",
+    "setup.cfg",
+    "Pipfile",
+    "Pipfile.lock",
+    "poetry.lock",
+    "package.json",
+    "package-lock.json",
+    "npm-shrinkwrap.json",
+    "pnpm-lock.yaml",
+    "yarn.lock",
+    "bun.lock",
+    "bun.lockb",
+)
 
 
 @dataclass(frozen=True)
@@ -72,6 +90,102 @@ def _manifest_hash(spec: FrameworkSpec) -> str:
     if spec.manifest_path.exists():
         return hashlib.sha256(spec.manifest_path.read_bytes()).hexdigest()
     return ""
+
+
+def _is_relative_to(path: Path, parent: Path) -> bool:
+    try:
+        path.relative_to(parent)
+    except ValueError:
+        return False
+    return True
+
+
+def _file_token_path(spec_dir: Path, token: str) -> Path | None:
+    if not token or token.startswith("-"):
+        return None
+    if "=" in token and token.startswith("--"):
+        token = token.split("=", 1)[1]
+    if not token or any(ch in token for ch in "*$?[]{}"):
+        return None
+
+    path = Path(token)
+    if not path.is_absolute():
+        path = spec_dir / path
+
+    spec_root = spec_dir.resolve()
+    resolved = path.resolve(strict=False)
+    if not _is_relative_to(resolved, spec_root):
+        return None
+    if not path.is_file():
+        return None
+    return path
+
+
+def _setup_fingerprint_files(spec: FrameworkSpec) -> list[Path]:
+    files: set[Path] = set()
+
+    try:
+        tokens = shlex.split(spec.setup or "")
+    except ValueError:
+        tokens = []
+    for token in tokens:
+        path = _file_token_path(spec.dir, token)
+        if path is not None:
+            files.add(path)
+
+    for name in _DEPENDENCY_FILE_NAMES:
+        path = spec.dir / name
+        if path.is_file():
+            files.add(path)
+    for path in spec.dir.glob("requirements*.txt"):
+        if path.is_file():
+            files.add(path)
+
+    return sorted(files, key=lambda p: p.relative_to(spec.dir).as_posix())
+
+
+def setup_fingerprint(spec: FrameworkSpec) -> str:
+    """Return the cache key for a framework setup.
+
+    The setup result depends on more than the manifest: the command can point at
+    a setup script, and setup commands commonly install dependencies from local
+    lockfiles/manifests. Include those directly-known inputs so a cached `.ok`
+    sentinel goes stale when they change.
+    """
+    h = hashlib.sha256()
+
+    def add_part(kind: str, name: str, content: bytes) -> None:
+        h.update(kind.encode())
+        h.update(b"\0")
+        h.update(name.encode())
+        h.update(b"\0")
+        h.update(str(len(content)).encode())
+        h.update(b"\0")
+        h.update(content)
+        h.update(b"\0")
+
+    if spec.manifest_path.exists():
+        add_part(
+            "file",
+            spec.manifest_path.relative_to(spec.dir).as_posix(),
+            spec.manifest_path.read_bytes(),
+        )
+    else:
+        add_part("missing", "manifest.json", b"")
+
+    add_part("setup", "command", (spec.setup or "").encode())
+    for path in _setup_fingerprint_files(spec):
+        add_part("file", path.relative_to(spec.dir).as_posix(), path.read_bytes())
+
+    return h.hexdigest()
+
+
+def _ok_is_fresh(ok_path: Path, current_fingerprint: str) -> bool:
+    try:
+        data = json.loads(ok_path.read_text())
+    except Exception:
+        return False
+    return (data.get("fingerprint") or data.get("hash")) == current_fingerprint
 
 
 def _record_pre_exec_failure(
@@ -137,6 +251,20 @@ def run_framework_setup(
 
     ok_path = setup_dir / f"{spec.name}.ok"
     fail_path = setup_dir / f"{spec.name}.fail"
+    current_fingerprint = setup_fingerprint(spec)
+    if not fail_path.exists() and ok_path.exists() and _ok_is_fresh(
+        ok_path, current_fingerprint
+    ):
+        return SetupResult(
+            framework=spec.name,
+            status="skipped",
+            reason="fresh",
+            exit_code=0,
+            stdout_truncated=False,
+            stderr_truncated=False,
+            duration_s=0.0,
+        )
+
     ok_path.unlink(missing_ok=True)
     fail_path.unlink(missing_ok=True)
 
@@ -224,7 +352,10 @@ def run_framework_setup(
     if not timed_out and proc.returncode == 0:
         content = json.dumps(
             {
-                "hash": _manifest_hash(spec),
+                "fingerprint": current_fingerprint,
+                "fingerprint_version": 1,
+                "hash": current_fingerprint,
+                "manifest_hash": _manifest_hash(spec),
                 "started_at": started_at,
                 "ended_at": ended_at,
             }
