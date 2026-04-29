@@ -137,7 +137,7 @@ def discover_cases(
             fop = Path(raw["failure_output_path"])
             if not fop.is_absolute():
                 fop = repo_root / fop
-            failure_output = fop.read_text()
+            failure_output = fop.read_text(encoding="utf-8", errors="replace")
 
         # Resolve fixture_repo to absolute
         fixture_repo = Path(raw["fixture_repo"])

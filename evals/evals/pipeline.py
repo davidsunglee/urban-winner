@@ -246,13 +246,13 @@ def _resolve_edit_constraints(case_constraints: dict) -> dict:
 
 def check_edit_constraints(changed_files: list[str], constraints: dict) -> dict:
     disallowed_spec = pathspec.PathSpec.from_lines(
-        "gitwildmatch", constraints.get("disallowed_paths", [])
+        "gitignore", constraints.get("disallowed_paths", [])
     )
     disallowed_violations = [f for f in changed_files if disallowed_spec.match_file(f)]
 
     if "allowed_paths" in constraints:
         allowed_spec = pathspec.PathSpec.from_lines(
-            "gitwildmatch", constraints["allowed_paths"]
+            "gitignore", constraints["allowed_paths"]
         )
         allowed_violations = [f for f in changed_files if not allowed_spec.match_file(f)]
     else:

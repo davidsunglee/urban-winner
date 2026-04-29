@@ -6,7 +6,7 @@ import subprocess
 import sys
 import tempfile
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -15,11 +15,11 @@ class LockBusyError(Exception):
 
 
 def _now_iso() -> str:
-    return datetime.utcnow().strftime("%Y-%m-%dT%H-%M-%S")
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%S")
 
 
 def _iso_zulu() -> str:
-    return datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _git_state(repo_root) -> dict:

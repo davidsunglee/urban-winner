@@ -256,7 +256,6 @@ def run_cell(
 
     # Send request, then close stdin.
     try:
-        assert proc.stdin is not None
         proc.stdin.write(request_json.encode("utf-8"))
         proc.stdin.close()
     except (BrokenPipeError, OSError):
