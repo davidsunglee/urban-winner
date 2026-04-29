@@ -11,9 +11,15 @@ from pathlib import Path
 
 from evals.discovery import FrameworkSpec
 from evals.env import build_setup_env
-from evals.process_tree import PROCESS_GROUP_POPEN_KWARGS, terminate_process_tree
+from evals.process_tree import (
+    PROCESS_GROUP_POPEN_KWARGS,
+    close_popen_pipes,
+    join_threads_bounded,
+    terminate_process_tree,
+)
 
 _CAP_BYTES = 5 * 1024 * 1024
+_PIPE_DRAIN_GRACE_S = 1.0
 _DEPENDENCY_FILE_NAMES = (
     "pyproject.toml",
     "uv.lock",
@@ -61,7 +67,10 @@ def _pump_capped(reader, dest_path: Path, cap_bytes: int) -> bool:
     truncated = False
     with open(dest_path, "wb") as f:
         while True:
-            chunk = reader.read(chunk_size)
+            try:
+                chunk = reader.read(chunk_size)
+            except (OSError, ValueError):
+                break
             if not chunk:
                 break
             if written < cap_bytes:
@@ -353,8 +362,14 @@ def run_framework_setup(
         # joining pump threads so stale pipe holders cannot hang setup.
         terminate_process_tree(proc, 5)
 
-    t1.join()
-    t2.join()
+    io_complete = join_threads_bounded([t1, t2], _PIPE_DRAIN_GRACE_S)
+    if not io_complete:
+        timed_out = True
+        close_popen_pipes(proc)
+        join_threads_bounded([t1, t2], 0.2)
+
+    stdout_log.touch(exist_ok=True)
+    stderr_log.touch(exist_ok=True)
 
     ended_at = datetime.now(timezone.utc).isoformat()
     duration_s = time.monotonic() - t0

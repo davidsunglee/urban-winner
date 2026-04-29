@@ -13,13 +13,19 @@ import pathspec
 
 from evals.discovery import CaseSpec, FrameworkSpec
 from evals.env import build_test_env
-from evals.process_tree import PROCESS_GROUP_POPEN_KWARGS, terminate_process_tree
+from evals.process_tree import (
+    PROCESS_GROUP_POPEN_KWARGS,
+    close_popen_pipes,
+    join_threads_bounded,
+    terminate_process_tree,
+)
 from evals.runner import EffectiveConfig, RunnerResult
 from evals.schemas import validate_agent_output, validate_envelope
 from evals.workspace import compute_venv_fingerprint
 
 TEST_OUTPUT_CAP_BYTES = 5 * 1024 * 1024  # 5 MiB
 KILL_GRACE_S = 5
+PIPE_DRAIN_GRACE_S = 1.0
 
 _DEFAULT_DISALLOWED_PATHS = [
     "tests/**",
@@ -126,7 +132,10 @@ def derive_canonical_diff(cell_dir: Path) -> dict:
 
 def _pump_capped_to_buffer(reader, buf: bytearray, cap: int, flag: list[bool]) -> None:
     while True:
-        chunk = reader.read(65536)
+        try:
+            chunk = reader.read(65536)
+        except (OSError, ValueError):
+            break
         if not chunk:
             break
         remaining = cap - len(buf)
@@ -189,8 +198,11 @@ def run_test_command(
         # pump threads so timeout enforcement cannot be bypassed by open pipes.
         terminate_process_tree(proc, KILL_GRACE_S)
 
-    t1.join()
-    t2.join()
+    io_complete = join_threads_bounded([t1, t2], PIPE_DRAIN_GRACE_S)
+    if not io_complete:
+        timed_out = True
+        close_popen_pipes(proc)
+        join_threads_bounded([t1, t2], 0.2)
 
     duration_ms = int((time.monotonic() - t0) * 1000)
     exit_code = None if timed_out else proc.returncode
@@ -390,7 +402,134 @@ def _parse_stdout_log(stdout_path: Path, stdout_truncated: bool):
         return None
 
 
+def _pipeline_exception_message(exc: Exception) -> str:
+    message = str(exc)
+    stderr = getattr(exc, "stderr", None)
+    if isinstance(stderr, bytes):
+        stderr_text = stderr.decode("utf-8", errors="replace").strip()
+    elif isinstance(stderr, str):
+        stderr_text = stderr.strip()
+    else:
+        stderr_text = ""
+    if stderr_text:
+        return f"{message}: {stderr_text}"
+    return message
+
+
+def _write_pipeline_failure_artifacts(
+    cell_dir: Path,
+    runner_result: RunnerResult,
+    *,
+    framework: FrameworkSpec,
+    case: CaseSpec,
+    effective_config: EffectiveConfig,
+    cache_dir: Path,
+    venv_hash_before: str,
+    exc: Exception,
+) -> None:
+    now_dt = datetime.now(timezone.utc)
+    started_at_dt = datetime.fromtimestamp(
+        now_dt.timestamp() - (runner_result.latency_ms / 1000.0),
+        tz=timezone.utc,
+    )
+    message = _pipeline_exception_message(exc)
+    try:
+        with open(runner_result.stderr_path, "a", encoding="utf-8") as f:
+            f.write(f"\npipeline_failure: {type(exc).__name__}: {message}\n")
+    except OSError:
+        pass
+
+    case_venv_path = cache_dir / f"{case.case_id}.venv"
+    try:
+        venv_hash_after = (
+            compute_venv_fingerprint(case_venv_path)
+            if case_venv_path.exists()
+            else venv_hash_before
+        )
+    except Exception:
+        venv_hash_after = venv_hash_before
+    venv_mutated = venv_hash_after != venv_hash_before
+
+    scoring = {
+        "schema_validity": False,
+        "visible_test_outcome": "error",
+        "hidden_test_outcome": "error" if case.hidden_test_command else "n/a",
+        "edit_constraint_compliance": {
+            "disallowed_violations": [],
+            "allowed_violations": [],
+            "over_max_changed_files": False,
+        },
+        "minimality": {
+            "changed_files": 0,
+            "changed_lines_added": 0,
+            "changed_lines_removed": 0,
+        },
+        "latency_ms": runner_result.latency_ms,
+        "trace_quality": "n/a",
+        "pipeline_error": {
+            "type": type(exc).__name__,
+            "message": message,
+        },
+    }
+    write_meta_json(
+        cell_dir,
+        framework=framework.name,
+        case_id=case.case_id,
+        task_id=runner_result.task_id,
+        model=effective_config.model,
+        started_at=started_at_dt.isoformat(),
+        ended_at=now_dt.isoformat(),
+        status="error",
+        error_reason="pipeline_failure",
+        exit_code=runner_result.exit_code,
+        stdout_truncated=runner_result.stdout_truncated,
+        stderr_truncated=runner_result.stderr_truncated,
+        harness_latency_ms=runner_result.latency_ms,
+        framework_reported_latency_ms=None,
+        effective_config=effective_config,
+        venv_hash_before=venv_hash_before,
+        venv_hash_after=venv_hash_after,
+        venv_mutated=venv_mutated,
+        scoring=scoring,
+    )
+
+
 def run_pipeline(
+    cell_dir: Path,
+    runner_result: RunnerResult,
+    *,
+    framework: FrameworkSpec,
+    case: CaseSpec,
+    effective_config: EffectiveConfig,
+    cache_dir: Path,
+    base_env: dict[str, str],
+    venv_hash_before: str,
+) -> None:
+    try:
+        _run_pipeline_impl(
+            cell_dir,
+            runner_result,
+            framework=framework,
+            case=case,
+            effective_config=effective_config,
+            cache_dir=cache_dir,
+            base_env=base_env,
+            venv_hash_before=venv_hash_before,
+        )
+    except Exception as exc:
+        _write_pipeline_failure_artifacts(
+            cell_dir,
+            runner_result,
+            framework=framework,
+            case=case,
+            effective_config=effective_config,
+            cache_dir=cache_dir,
+            venv_hash_before=venv_hash_before,
+            exc=exc,
+        )
+
+
+def _run_pipeline_impl(
     cell_dir: Path,
     runner_result: RunnerResult,
     *,

@@ -12,13 +12,19 @@ from uuid import uuid4
 
 from evals.discovery import CaseSpec, FrameworkSpec
 from evals.env import build_agent_env
-from evals.process_tree import PROCESS_GROUP_POPEN_KWARGS, terminate_process_tree
+from evals.process_tree import (
+    PROCESS_GROUP_POPEN_KWARGS,
+    close_popen_pipes,
+    join_threads_bounded,
+    terminate_process_tree,
+)
 from evals.schemas import validate_envelope
 from evals.setup import is_setup_failed
 
 STDOUT_CAP_BYTES = 8 * 1024 * 1024  # 8 MiB
 STDERR_CAP_BYTES = 5 * 1024 * 1024  # 5 MiB
 KILL_GRACE_S = 5
+PIPE_DRAIN_GRACE_S = 1.0
 
 _DEFAULT_DISALLOWED_PATHS = [
     "tests/**",
@@ -63,7 +69,10 @@ def _pump_capped(reader, dest_path: Path, cap_bytes: int) -> bool:
     truncated = False
     with open(dest_path, "wb") as f:
         while True:
-            chunk = reader.read(chunk_size)
+            try:
+                chunk = reader.read(chunk_size)
+            except (OSError, ValueError):
+                break
             if not chunk:
                 break
             if written < cap_bytes:
@@ -307,7 +316,7 @@ def run_cell(
     def write_stdin() -> None:
         try:
             proc.stdin.write(request_bytes)
-        except (BrokenPipeError, OSError):
+        except (BrokenPipeError, OSError, ValueError):
             pass
         finally:
             try:
@@ -335,14 +344,19 @@ def run_cell(
         terminate_process_tree(proc, KILL_GRACE_S)
 
     if not timed_out:
-        t_stdin.join(timeout=remaining_timeout())
+        t_stdin.join(timeout=min(PIPE_DRAIN_GRACE_S, remaining_timeout()))
         if t_stdin.is_alive():
             timed_out = True
             terminate_process_tree(proc, KILL_GRACE_S)
 
-    t_stdin.join()
-    t1.join()
-    t2.join()
+    io_complete = join_threads_bounded([t_stdin, t1, t2], PIPE_DRAIN_GRACE_S)
+    if not io_complete:
+        timed_out = True
+        close_popen_pipes(proc)
+        join_threads_bounded([t_stdin, t1, t2], 0.2)
+
+    stdout_path.touch(exist_ok=True)
+    stderr_path.touch(exist_ok=True)
 
     latency_ms = int((time.monotonic() - t0) * 1000)
     exit_code = None if timed_out else proc.returncode

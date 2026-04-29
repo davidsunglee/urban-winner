@@ -2,8 +2,10 @@ import json
 import os
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -263,6 +265,58 @@ def test_test_command_returns_when_background_descendant_holds_stdout_pipe(tmp_p
     assert elapsed < 2.5, "run_test_command should not wait for a pipe-holding background child"
     assert result.outcome == "pass"
     assert result.exit_code == 0
+
+
+def test_test_command_marks_error_when_detached_descendant_keeps_stdout_pipe_open(tmp_path):
+    pid_file = tmp_path / "detached-test-child.pid"
+    child_code = (
+        "import os, time; "
+        f"open({str(pid_file)!r}, 'w').write(str(os.getpid())); "
+        "time.sleep(30)"
+    )
+    command = shlex.join(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import subprocess, sys; "
+                f"subprocess.Popen([sys.executable, '-c', {child_code!r}], start_new_session=True); "
+                "raise SystemExit(0)"
+            ),
+        ]
+    )
+    result_holder: dict = {}
+
+    def run() -> None:
+        try:
+            result_holder["result"] = run_test_command(
+                command,
+                cwd=tmp_path,
+                env={**os.environ},
+                timeout_s=1,
+            )
+        except BaseException as exc:
+            result_holder["exc"] = exc
+
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    t.join(timeout=4)
+    returned_under_timeout = not t.is_alive()
+    if pid_file.exists():
+        try:
+            os.kill(int(pid_file.read_text()), signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    if not returned_under_timeout:
+        t.join(timeout=2)
+
+    assert returned_under_timeout, (
+        "run_test_command should not hang when a detached descendant keeps stdout open"
+    )
+    assert "exc" not in result_holder
+    result = result_holder["result"]
+    assert result.outcome == "error"
+    assert result.exit_code is None
 
 
 def test_test_command_timeout_terminates_process_tree(tmp_path, process_tree_probe):
@@ -601,6 +655,35 @@ def test_meta_json_records_per_field_config_sources(tmp_path):
 # ---------------------------------------------------------------------------
 # Orchestrator: framework_misconfigured
 # ---------------------------------------------------------------------------
+
+def test_pipeline_failure_writes_scoring_and_meta_artifacts(tmp_path):
+    cell_dir = tmp_path / "cell"
+    cell_dir.mkdir()
+    case = _make_case(hidden_test_command=None)
+    fw = _make_framework(tmp_path)
+    cfg = _make_effective_config()
+    rr = _make_runner_result(cell_dir)
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+
+    run_pipeline(
+        cell_dir,
+        rr,
+        framework=fw,
+        case=case,
+        effective_config=cfg,
+        cache_dir=cache_dir,
+        base_env=dict(os.environ),
+        venv_hash_before="HASH0",
+    )
+
+    scoring = json.loads((cell_dir / "scoring.json").read_text())
+    meta = json.loads((cell_dir / "meta.json").read_text())
+    assert meta["status"] == "error"
+    assert meta["error_reason"] == "pipeline_failure"
+    assert "pipeline_error" in scoring
+    assert "repo" in scoring["pipeline_error"]["message"]
+
 
 def test_pipeline_runs_against_pristine_for_framework_misconfigured(tmp_path):
     cell_dir = _make_buggy_worktree(tmp_path)  # pristine, agent never touched it

@@ -1,7 +1,9 @@
 import json
 import os
 import shlex
+import signal
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -126,6 +128,62 @@ def test_run_framework_setup_returns_when_background_descendant_holds_stdout_pip
     assert elapsed < 2.5, "setup should not wait for a pipe-holding background child"
     assert result.status == "ok"
     assert result.exit_code == 0
+
+
+def test_run_framework_setup_marks_timeout_when_detached_descendant_keeps_stdout_pipe_open(tmp_path):
+    pid_file = tmp_path / "detached-setup-child.pid"
+    child_code = (
+        "import os, time; "
+        f"open({str(pid_file)!r}, 'w').write(str(os.getpid())); "
+        "time.sleep(30)"
+    )
+    spec = make_spec(
+        tmp_path,
+        setup=shlex.join(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "import subprocess, sys; "
+                    f"subprocess.Popen([sys.executable, '-c', {child_code!r}], start_new_session=True); "
+                    "raise SystemExit(0)"
+                ),
+            ]
+        ),
+        name="detached-pipe-holder-setup",
+    )
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+    result_holder: dict = {}
+
+    def run() -> None:
+        try:
+            result_holder["result"] = run_framework_setup(
+                spec, cache_dir=cache_dir, base_env=BASE_ENV, dotenv=DOTENV, timeout_s=1
+            )
+        except BaseException as exc:
+            result_holder["exc"] = exc
+
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    t.join(timeout=4)
+    returned_under_timeout = not t.is_alive()
+    if pid_file.exists():
+        try:
+            os.kill(int(pid_file.read_text()), signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    if not returned_under_timeout:
+        t.join(timeout=2)
+
+    assert returned_under_timeout, (
+        "setup should not hang when a detached descendant keeps stdout open"
+    )
+    assert "exc" not in result_holder
+    result = result_holder["result"]
+    assert result.status == "failed"
+    assert result.reason == "timeout"
+    assert result.exit_code is None
 
 
 def test_run_framework_setup_timeout_terminates_process_tree(tmp_path, process_tree_probe):

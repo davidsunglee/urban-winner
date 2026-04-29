@@ -338,6 +338,92 @@ def test_runner_returns_when_background_descendant_holds_stdout_pipe(tmp_path):
     assert result.response_path == cell_dir / "response.json"
 
 
+def test_runner_marks_timeout_when_detached_descendant_keeps_stdout_pipe_open(tmp_path):
+    fw_dir = tmp_path / "detached-pipe-holder-fw"
+    fw_dir.mkdir()
+    pid_file = tmp_path / "detached-child.pid"
+    entry = fw_dir / "run.py"
+    child_code = (
+        "import os, time; "
+        f"open({str(pid_file)!r}, 'w').write(str(os.getpid())); "
+        "time.sleep(30)"
+    )
+    entry.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json\n"
+        "import subprocess\n"
+        "import sys\n"
+        "request = json.load(sys.stdin)\n"
+        f"subprocess.Popen([sys.executable, '-c', {child_code!r}], start_new_session=True)\n"
+        "json.dump({\n"
+        "    'task_id': request['task_id'],\n"
+        "    'output': {\n"
+        "        'root_cause': 'rc',\n"
+        "        'summary': 's',\n"
+        "        'changed_files': [],\n"
+        "        'tests_run': [],\n"
+        "        'evidence': 'e',\n"
+        "        'confidence': 1.0,\n"
+        "    },\n"
+        "    'trace': {'steps': [], 'tokens': {'input': 1, 'output': 1}, 'latency_ms': 1},\n"
+        "    'error': None,\n"
+        "}, sys.stdout)\n"
+        "sys.stdout.flush()\n"
+    )
+    entry.chmod(0o755)
+    fw = FrameworkSpec(
+        name="detached-pipe-holder-fw",
+        dir=fw_dir,
+        manifest_path=fw_dir / "manifest.json",
+        entry="./run.py",
+        setup=None,
+        env_keys=[],
+        model="fake",
+    )
+    case = _make_case(tmp_path)
+    cell_dir = tmp_path / "cell"
+    (cell_dir / "repo").mkdir(parents=True)
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+    result_holder: dict = {}
+
+    def run() -> None:
+        try:
+            result_holder["result"] = run_cell(
+                framework=fw,
+                case=case,
+                effective_config=_effective(timeout_s=1),
+                cell_dir=cell_dir,
+                cache_dir=cache_dir,
+                repo_root=tmp_path,
+                base_env=BASE_ENV,
+                dotenv=DOTENV,
+            )
+        except BaseException as exc:
+            result_holder["exc"] = exc
+
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    t.join(timeout=4)
+    returned_under_timeout = not t.is_alive()
+    if pid_file.exists():
+        try:
+            os.kill(int(pid_file.read_text()), signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+    if not returned_under_timeout:
+        t.join(timeout=2)
+
+    assert returned_under_timeout, (
+        "run_cell should not hang when a detached descendant keeps stdout open"
+    )
+    assert "exc" not in result_holder
+    result = result_holder["result"]
+    assert result.timed_out is True
+    assert result.error_reason == "timeout"
+    assert result.exit_code is None
+
+
 def test_runner_timeout_terminates_framework_process_tree(tmp_path, process_tree_probe):
     fw_dir = tmp_path / "process-tree-fw"
     fw_dir.mkdir()
