@@ -211,6 +211,8 @@ def _record_pre_exec_failure(
         {
             "reason": reason,
             "exit_code": None,
+            "stdout_truncated": False,
+            "stderr_truncated": False,
             "started_at": started_at,
             "ended_at": ended_at,
         }
@@ -357,6 +359,8 @@ def run_framework_setup(
                 "fingerprint_version": 1,
                 "hash": current_fingerprint,
                 "manifest_hash": _manifest_hash(spec),
+                "stdout_truncated": stdout_truncated,
+                "stderr_truncated": stderr_truncated,
                 "started_at": started_at,
                 "ended_at": ended_at,
             }
@@ -378,6 +382,8 @@ def run_framework_setup(
         {
             "reason": reason,
             "exit_code": exit_code,
+            "stdout_truncated": stdout_truncated,
+            "stderr_truncated": stderr_truncated,
             "started_at": started_at,
             "ended_at": ended_at,
         }

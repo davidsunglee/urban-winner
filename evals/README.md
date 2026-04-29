@@ -17,6 +17,15 @@ just eval-report           # regenerate runs/CURRENT/report.md
 
 Override flags `--model <id>`, `--timeout-s <n>`, `--max-steps <n>` are accepted on `eval-new` (campaign-level) and `eval` (cell-level). `eval-all` rejects them inside an existing campaign — start a new campaign with `eval-new --model X` instead.
 
+## Pytest command normalization
+
+Visible and hidden reruns execute inside the prepared case venv. To avoid relying on a `pytest` console script (not present for `uv sync --no-install-project` self-hosting fixtures), the harness normalizes pytest commands before execution:
+
+- `pytest ...` → `python -m pytest ...`
+- `uv run pytest ...` → `python -m pytest ...`
+
+Rerun artifacts record both the original command and the effective command used by the harness.
+
 ## Layout
 
 - `evals/__main__.py` — CLI entry (`python -m evals <verb>`)

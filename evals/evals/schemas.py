@@ -12,6 +12,14 @@ OUTPUT_REQUIRED = {"root_cause", "summary", "changed_files", "tests_run", "evide
 CASE_ID_PATTERN = r"^(?!\.{1,2}$)[a-zA-Z0-9_.-]+$"
 
 
+def _is_int(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _is_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
 def validate_framework_manifest(obj: object) -> list[str]:
     errors = []
 
@@ -120,7 +128,7 @@ def validate_case_manifest(obj: object) -> list[str]:
                     errors.append("edit_constraints.allowed_paths items must be strings")
 
             if "max_changed_files" in constraints:
-                if not isinstance(constraints["max_changed_files"], int):
+                if not _is_int(constraints["max_changed_files"]):
                     errors.append("edit_constraints.max_changed_files must be an int")
                 elif constraints["max_changed_files"] < 0:
                     errors.append("edit_constraints.max_changed_files must be non-negative")
@@ -168,7 +176,7 @@ def validate_envelope(obj: object) -> list[str]:
                     errors.append("trace.tokens must be a dict")
                 elif not ("input" in tokens and "output" in tokens):
                     errors.append("trace.tokens must have input and output fields")
-                elif not (isinstance(tokens["input"], int) and isinstance(tokens["output"], int)):
+                elif not (_is_int(tokens["input"]) and _is_int(tokens["output"])):
                     errors.append("trace.tokens.input and output must be ints")
 
             # Validate steps
@@ -179,7 +187,7 @@ def validate_envelope(obj: object) -> list[str]:
             # Validate latency_ms
             if "latency_ms" in trace:
                 latency = trace["latency_ms"]
-                if not isinstance(latency, int):
+                if not _is_int(latency):
                     errors.append("trace.latency_ms must be an int")
                 elif latency < 0:
                     errors.append("trace.latency_ms must be non-negative")
@@ -251,7 +259,7 @@ def validate_agent_output(obj: object) -> list[str]:
                 else:
                     if not isinstance(test.get("command"), str):
                         errors.append(f"tests_run[{i}].command must be a string")
-                    if not isinstance(test.get("exit_code"), int):
+                    if not _is_int(test.get("exit_code")):
                         errors.append(f"tests_run[{i}].exit_code must be an int")
                     if not isinstance(test.get("summary"), str):
                         errors.append(f"tests_run[{i}].summary must be a string")
@@ -264,7 +272,7 @@ def validate_agent_output(obj: object) -> list[str]:
     # Validate confidence
     if "confidence" in obj:
         confidence = obj["confidence"]
-        if not isinstance(confidence, (int, float)):
+        if not _is_number(confidence):
             errors.append("confidence must be a number")
         elif not (0.0 <= confidence <= 1.0):
             errors.append("confidence must be in range [0.0, 1.0]")

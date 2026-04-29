@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+import evals.setup as setup_mod
 from evals.discovery import FrameworkSpec
 from evals.setup import (
     SetupResult,
@@ -182,6 +183,67 @@ def test_run_framework_setup_truncates_oversize_stdout(tmp_path):
     log = cache_dir / "setup" / f"{spec.name}.stdout.log"
     assert log.stat().st_size == 5 * 1024 * 1024
     assert result.stdout_truncated is True
+
+
+def test_run_framework_setup_persists_truncation_flags_in_ok_sentinel(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(setup_mod, "_CAP_BYTES", 4)
+    spec = make_spec(
+        tmp_path,
+        setup=shlex.join(
+            [
+                sys.executable,
+                "-c",
+                "import sys; sys.stdout.write('abcdef'); sys.stdout.flush()",
+            ]
+        ),
+    )
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+
+    result = run_framework_setup(
+        spec, cache_dir=cache_dir, base_env=BASE_ENV, dotenv=DOTENV, timeout_s=30
+    )
+
+    assert result.status == "ok"
+    assert result.stdout_truncated is True
+    data = json.loads((cache_dir / "setup" / f"{spec.name}.ok").read_text())
+    assert data["stdout_truncated"] is True
+    assert data["stderr_truncated"] is False
+
+
+def test_run_framework_setup_persists_truncation_flags_in_fail_sentinel(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(setup_mod, "_CAP_BYTES", 4)
+    spec = make_spec(
+        tmp_path,
+        setup=shlex.join(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "import sys; "
+                    "sys.stderr.write('abcdef'); "
+                    "sys.stderr.flush(); "
+                    "raise SystemExit(7)"
+                ),
+            ]
+        ),
+    )
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+
+    result = run_framework_setup(
+        spec, cache_dir=cache_dir, base_env=BASE_ENV, dotenv=DOTENV, timeout_s=30
+    )
+
+    assert result.status == "failed"
+    assert result.stderr_truncated is True
+    data = json.loads((cache_dir / "setup" / f"{spec.name}.fail").read_text())
+    assert data["stdout_truncated"] is False
+    assert data["stderr_truncated"] is True
 
 
 def test_run_framework_setup_pipe_drain_does_not_block(tmp_path):

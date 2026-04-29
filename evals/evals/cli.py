@@ -519,7 +519,8 @@ def cmd_eval_report(args) -> int:
     if campaign_dir is None:
         print("no current campaign", file=sys.stderr)
         return 2
-    write_report(campaign_dir)
+    with lock(campaign_dir, argv=sys.argv):
+        write_report(campaign_dir)
     print(str(campaign_dir / "report.md"))
     return 0
 
