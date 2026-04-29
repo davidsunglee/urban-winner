@@ -94,4 +94,11 @@
 - Verification run:
   - `cd evals && uv run pytest -q tests/runner_test.py tests/pipeline_test.py tests/setup_test.py`
 
+**Batch 3: commit missing process-tree probe fixture**
+- Added the previously uncommitted `ProcessTreeProbe` / `process_tree_probe` test fixture to `evals/tests/conftest.py` so the committed tree passes the new timeout regression tests from a clean checkout.
+- Verification run:
+  - `cd evals && uv run pytest -q tests/runner_test.py tests/setup_test.py tests/pipeline_test.py`
+  - `cd evals && uv run pytest -q -m 'not integration'`
+  - `cd evals && uv run pytest -q -m integration`
+
 Remaining from reviewer: none from era 4 iteration 1.
