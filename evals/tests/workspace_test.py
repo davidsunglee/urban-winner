@@ -92,6 +92,12 @@ def test_compute_fixture_hash_excludes_untracked(tmp_path):
     assert hash1 == hash2
 
 
+def test_compute_fixture_hash_uses_manifest_fixture_dir(tmp_path):
+    repo, _case_id = _make_fixture_repo(tmp_path, case_id="fixture-dir")
+
+    assert compute_fixture_hash(repo, "case-id", repo / "fixtures" / "fixture-dir")
+
+
 # ---------------------------------------------------------------------------
 # compute_lock_hash
 # ---------------------------------------------------------------------------
@@ -178,6 +184,18 @@ def test_ensure_case_bare_repo_rebuilds_when_hash_changes(tmp_path):
     head_mtime2 = (cache / f"{case_id}.git" / "HEAD").stat().st_mtime
 
     assert head_mtime1 != head_mtime2, "second call should rebuild when hash changes"
+
+
+def test_ensure_case_bare_repo_uses_manifest_fixture_dir(tmp_path):
+    repo, _case_id = _make_fixture_repo(tmp_path, case_id="fixture-dir")
+    cache = tmp_path / "cache"
+    cache.mkdir()
+
+    bare = ensure_case_bare_repo(repo, "case-id", cache, repo / "fixtures" / "fixture-dir")
+    dest = tmp_path / "cell"
+    clone_cell_worktree(bare, dest)
+
+    assert (dest / "main.py").read_text() == "x = 1\n"
 
 
 # ---------------------------------------------------------------------------

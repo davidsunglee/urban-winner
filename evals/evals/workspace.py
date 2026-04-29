@@ -16,15 +16,29 @@ def _blake2_hex(data: bytes) -> str:
     return hashlib.blake2b(data, digest_size=16).hexdigest()
 
 
-def compute_fixture_hash(repo_root: Path, case_id: str) -> str:
+def _fixture_rel_path(repo_root: Path, case_id: str, fixture_dir: Path | None = None) -> str:
+    if fixture_dir is None:
+        return f"fixtures/{case_id}"
+    path = fixture_dir
+    if path.is_absolute():
+        path = path.resolve().relative_to(repo_root.resolve())
+    return path.as_posix().rstrip("/")
+
+
+def compute_fixture_hash(
+    repo_root: Path,
+    case_id: str,
+    fixture_dir: Path | None = None,
+) -> str:
+    fixture_rel = _fixture_rel_path(repo_root, case_id, fixture_dir)
     result = subprocess.run(
-        ["git", "-C", str(repo_root), "ls-files", "-z", f"fixtures/{case_id}/"],
+        ["git", "-C", str(repo_root), "ls-files", "-z", f"{fixture_rel}/"],
         capture_output=True,
         check=True,
     )
     tracked = [p for p in result.stdout.split(b"\0") if p]
     if not tracked:
-        raise WorkspaceError(f"No tracked files found for case {case_id!r}")
+        raise WorkspaceError(f"No tracked files found for case {case_id!r} in {fixture_rel!r}")
 
     entries = []
     for rel_bytes in tracked:
@@ -53,8 +67,14 @@ def compute_venv_fingerprint(venv_dir: Path) -> str:
     return _blake2_hex("\n".join(dist_infos).encode())
 
 
-def ensure_case_bare_repo(repo_root: Path, case_id: str, cache_dir: Path) -> Path:
-    fixture_hash = compute_fixture_hash(repo_root, case_id)
+def ensure_case_bare_repo(
+    repo_root: Path,
+    case_id: str,
+    cache_dir: Path,
+    fixture_dir: Path | None = None,
+) -> Path:
+    fixture_rel = _fixture_rel_path(repo_root, case_id, fixture_dir)
+    fixture_hash = compute_fixture_hash(repo_root, case_id, fixture_dir)
     hash_file = cache_dir / f"{case_id}.fixture-hash"
     bare_dir = cache_dir / f"{case_id}.git"
 
@@ -78,12 +98,12 @@ def ensure_case_bare_repo(repo_root: Path, case_id: str, cache_dir: Path) -> Pat
         work.mkdir()
 
         result = subprocess.run(
-            ["git", "-C", str(repo_root), "ls-files", "-z", f"fixtures/{case_id}/"],
+            ["git", "-C", str(repo_root), "ls-files", "-z", f"{fixture_rel}/"],
             capture_output=True,
             check=True,
         )
         tracked = [p.decode() for p in result.stdout.split(b"\0") if p]
-        prefix = f"fixtures/{case_id}/"
+        prefix = f"{fixture_rel}/"
         for rel in tracked:
             rel_in_fixture = rel[len(prefix):]
             dst = work / rel_in_fixture

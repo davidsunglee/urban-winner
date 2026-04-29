@@ -107,6 +107,8 @@ def _prepare_needed(repo_root: Path, frameworks, cases, cache_dir: Path) -> bool
         if data.get("hash") != current_hash:
             return True
     for case in cases:
+        if not (cache_dir / f"{case.case_id}.git").exists():
+            return True
         if not (cache_dir / f"{case.case_id}.venv").exists():
             return True
     return False
@@ -127,7 +129,7 @@ def _do_prepare(
 
     for case in cases:
         try:
-            ensure_case_bare_repo(repo_root, case.case_id, cache_dir)
+            ensure_case_bare_repo(repo_root, case.case_id, cache_dir, case.fixture_repo)
         except Exception as exc:
             failed = True
             summary.append(f"case {case.case_id}: bare-repo FAIL: {exc}")
