@@ -45,6 +45,7 @@ def build_agent_env(
 def build_test_env(
     *,
     case_venv_path: Path,
+    cell_repo_path: Path,
     base_env: dict[str, str],
 ) -> dict[str, str]:
     out: dict[str, str] = {}
@@ -53,6 +54,14 @@ def build_test_env(
             out[k] = base_env[k]
     out["PATH"] = _build_path(case_venv_path, base_env.get("PATH", ""))
     out["UV_PROJECT_ENVIRONMENT"] = str(case_venv_path.resolve())
+    # The case venv is built with `uv sync --no-install-project`, so the
+    # project itself is not in site-packages. Without UV_NO_SYNC, `uv run`
+    # would sync (install) the project into the shared case venv during
+    # visible/hidden test reruns, mutating it across cells and invalidating
+    # the venv-mutation invariant. Pin the venv read-only and surface the
+    # cell's checked-out source via PYTHONPATH instead.
+    out["UV_NO_SYNC"] = "1"
+    out["PYTHONPATH"] = str(cell_repo_path.resolve())
     # No declared framework keys — test reruns are deterministic and never see secrets.
     return out
 

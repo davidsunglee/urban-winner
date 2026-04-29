@@ -126,8 +126,14 @@ def test_fake_behavior(
 
     if behavior == "success-noop":
         assert scoring["schema_validity"] is True
+        # Regression: visible/hidden test reruns use `uv run pytest ...`. They
+        # must not sync the project into the shared case venv.
+        assert meta["venv_mutated"] is False
     elif behavior == "success-fix":
         assert scoring["visible_test_outcome"] == "pass"
+        # Same regression: a successful fix path reruns visible+hidden tests
+        # with `uv run` and must not mutate the shared case venv.
+        assert meta["venv_mutated"] is False
     elif behavior == "hang":
         assert meta["exit_code"] is None
     elif behavior == "crash":

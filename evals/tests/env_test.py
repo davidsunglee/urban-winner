@@ -68,6 +68,7 @@ def test_test_env_excludes_framework_keys():
 
     test_env = build_test_env(
         case_venv_path=Path("/tmp/v"),
+        cell_repo_path=Path("/tmp/repo"),
         base_env={"FOO": "val", "PATH": "/usr/bin"},
     )
     assert "FOO" not in test_env
@@ -77,6 +78,7 @@ def test_test_env_path_prepends_venv_bin(tmp_path):
     venv = tmp_path / "v"
     env = build_test_env(
         case_venv_path=venv,
+        cell_repo_path=tmp_path / "repo",
         base_env={"PATH": "/usr/bin"},
     )
     assert env["PATH"].startswith(str(venv.resolve()) + "/bin:")
@@ -86,9 +88,34 @@ def test_test_env_includes_uv_project_environment(tmp_path):
     venv = tmp_path / "v"
     env = build_test_env(
         case_venv_path=venv,
+        cell_repo_path=tmp_path / "repo",
         base_env={"PATH": "/usr/bin"},
     )
     assert env["UV_PROJECT_ENVIRONMENT"] == str(venv.resolve())
+
+
+def test_test_env_disables_uv_sync(tmp_path):
+    # Regression: `uv run pytest ...` must not sync/install the project into the
+    # shared case venv during test reruns. UV_NO_SYNC=1 enforces this.
+    env = build_test_env(
+        case_venv_path=tmp_path / "v",
+        cell_repo_path=tmp_path / "repo",
+        base_env={"PATH": "/usr/bin"},
+    )
+    assert env["UV_NO_SYNC"] == "1"
+
+
+def test_test_env_pythonpath_points_at_cell_repo(tmp_path):
+    # The case venv is built with `--no-install-project`, so the project is not
+    # importable from site-packages. Tests must be able to import the cell's
+    # checked-out source via PYTHONPATH instead.
+    repo = tmp_path / "repo"
+    env = build_test_env(
+        case_venv_path=tmp_path / "v",
+        cell_repo_path=repo,
+        base_env={"PATH": "/usr/bin"},
+    )
+    assert env["PYTHONPATH"] == str(repo.resolve())
 
 
 def test_setup_env_does_not_include_uv_project_environment():

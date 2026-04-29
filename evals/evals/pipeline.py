@@ -425,8 +425,12 @@ def run_pipeline(
 
     # Step 3 — visible test rerun.
     case_venv_path = cache_dir / f"{case.case_id}.venv"
-    test_env = build_test_env(case_venv_path=case_venv_path, base_env=base_env)
     repo_dir = cell_dir / "repo"
+    test_env = build_test_env(
+        case_venv_path=case_venv_path,
+        cell_repo_path=repo_dir,
+        base_env=base_env,
+    )
 
     visible = run_test_command(
         case.failing_test_command,
