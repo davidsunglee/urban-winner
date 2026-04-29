@@ -243,6 +243,27 @@ def test_ensure_case_bare_repo_uses_manifest_fixture_dir(tmp_path):
     assert (dest / "main.py").read_text() == "x = 1\n"
 
 
+def test_ensure_case_bare_repo_head_points_to_main_with_non_main_git_default(
+    tmp_path, monkeypatch
+):
+    """The cached bare repo must clone to the fixture even when git init's
+    default branch is not `main`.
+    """
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", "init.defaultBranch")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", "trunk")
+    repo, case_id = _make_fixture_repo(tmp_path)
+    cache = tmp_path / "cache"
+    cache.mkdir()
+
+    bare = ensure_case_bare_repo(repo, case_id, cache)
+    dest = tmp_path / "cell"
+    clone_cell_worktree(bare, dest)
+
+    assert (bare / "HEAD").read_text().strip() == "ref: refs/heads/main"
+    assert (dest / "main.py").read_text() == "x = 1\n"
+
+
 # ---------------------------------------------------------------------------
 # clone_cell_worktree
 # ---------------------------------------------------------------------------

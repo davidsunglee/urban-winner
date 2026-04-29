@@ -136,6 +136,11 @@ def ensure_case_bare_repo(
             check=True,
             capture_output=True,
         )
+        subprocess.run(
+            ["git", "--git-dir", str(bare), "symbolic-ref", "HEAD", "refs/heads/main"],
+            check=True,
+            capture_output=True,
+        )
 
         shutil.move(str(bare), str(bare_dir))
 

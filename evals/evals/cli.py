@@ -6,7 +6,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from evals.campaign import current_campaign, eval_new, lock
+from evals.campaign import LockBusyError, current_campaign, eval_new, lock
 from evals.discovery import discover_cases, discover_frameworks
 from evals.env import load_dotenv
 from evals.pipeline import run_pipeline
@@ -342,11 +342,21 @@ def cmd_eval_all(args) -> int:
     base_env = os.environ.copy()
     dotenv = load_dotenv(repo_root)
 
-    if _prepare_needed(repo_root, frameworks, cases, cache_dir):
+    manifest = json.loads((campaign_dir / "manifest.json").read_text())
+    campaign_overrides = _campaign_overrides(campaign_dir)
+
+    fw_run = [f for f in frameworks if f.name in manifest["frameworks"]]
+    case_run = [c for c in cases if c.case_id in manifest["cases"]]
+    if args.framework:
+        fw_run = [f for f in fw_run if f.name == args.framework]
+    if args.case:
+        case_run = [c for c in case_run if c.case_id == args.case]
+
+    if _prepare_needed(repo_root, fw_run, case_run, cache_dir):
         prepare_result = _do_prepare(
             repo_root=repo_root,
-            frameworks=frameworks,
-            cases=cases,
+            frameworks=fw_run,
+            cases=case_run,
             cache_dir=cache_dir,
             base_env=base_env,
             dotenv=dotenv,
@@ -357,16 +367,6 @@ def cmd_eval_all(args) -> int:
         if prepare_result.case_failed:
             print("aborting eval-all due to case prepare failure", file=sys.stderr)
             return 1
-
-    manifest = json.loads((campaign_dir / "manifest.json").read_text())
-    campaign_overrides = _campaign_overrides(campaign_dir)
-
-    fw_run = [f for f in frameworks if f.name in manifest["frameworks"]]
-    case_run = [c for c in cases if c.case_id in manifest["cases"]]
-    if args.framework:
-        fw_run = [f for f in fw_run if f.name == args.framework]
-    if args.case:
-        case_run = [c for c in case_run if c.case_id == args.case]
 
     with lock(campaign_dir, argv=sys.argv, force_unlock=args.force_unlock):
         for fw in fw_run:
@@ -541,4 +541,8 @@ def _build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
-    return args.func(args)
+    try:
+        return args.func(args)
+    except LockBusyError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2

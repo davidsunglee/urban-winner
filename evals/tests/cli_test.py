@@ -2,6 +2,8 @@
 from contextlib import contextmanager
 import hashlib
 import json
+import os
+import socket
 import subprocess
 from pathlib import Path
 
@@ -307,6 +309,91 @@ def test_eval_all_unknown_case_exits_2(
     err = capsys.readouterr().err
     assert "nope" in err
     assert "case" in err.lower()
+
+
+def test_eval_all_prepares_only_selected_campaign_cells(
+    tmp_path: Path, monkeypatch
+) -> None:
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    _write_good_framework(repo, name="keep-fw")
+    _write_good_framework(repo, name="skip-fw")
+    keep_fixture = tmp_path / "keep-fixture"
+    keep_fixture.mkdir()
+    skip_fixture = tmp_path / "skip-fixture"
+    skip_fixture.mkdir()
+    _write_good_case(repo, keep_fixture, case_id="keep-case")
+    _write_good_case(repo, skip_fixture, case_id="skip-case")
+    cli.eval_new(
+        repo,
+        frameworks=["keep-fw"],
+        cases=["keep-case"],
+        config_overrides={},
+    )
+
+    monkeypatch.setattr(cli, "_repo_root", lambda: repo)
+    prepared: dict[str, list[str]] = {}
+
+    def fake_prepare_needed(_repo_root, frameworks, cases, _cache_dir):
+        prepared["frameworks"] = [fw.name for fw in frameworks]
+        prepared["cases"] = [case.case_id for case in cases]
+        return False
+
+    attempted_cells: list[tuple[str, str]] = []
+
+    def record_cell_attempt(**kwargs):
+        attempted_cells.append((kwargs["fw"].name, kwargs["case"].case_id))
+        kwargs["cell_dir"].mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setattr(cli, "_prepare_needed", fake_prepare_needed)
+    monkeypatch.setattr(cli, "_run_one_cell", record_cell_attempt)
+    monkeypatch.setattr(cli, "write_report", lambda _campaign_dir: None)
+
+    args = cli._build_parser().parse_args(
+        ["eval-all", "--framework", "keep-fw", "--case", "keep-case"]
+    )
+    rc = cli.cmd_eval_all(args)
+
+    assert rc == 0
+    assert prepared == {"frameworks": ["keep-fw"], "cases": ["keep-case"]}
+    assert attempted_cells == [("keep-fw", "keep-case")]
+
+
+def test_cli_reports_lock_refusal_without_traceback(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    _write_good_framework(repo)
+    fixture = tmp_path / "fixture"
+    fixture.mkdir()
+    _write_good_case(repo, fixture)
+    campaign_dir = cli.eval_new(
+        repo,
+        frameworks=["good"],
+        cases=["case-001"],
+        config_overrides={},
+    )
+    (campaign_dir / ".lock").write_text(
+        json.dumps(
+            {
+                "pid": os.getpid(),
+                "hostname": socket.gethostname(),
+                "started_at": "2026-01-01T00:00:00Z",
+                "argv": ["eval-all"],
+            }
+        )
+    )
+
+    monkeypatch.setattr(cli, "_repo_root", lambda: repo)
+    monkeypatch.setattr(cli, "_prepare_needed", lambda *_args: False)
+
+    rc = cli.main(["eval-all"])
+
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "Campaign in use" in err
+    assert "Traceback" not in err
 
 
 def test_eval_all_aborts_nonzero_when_case_prepare_fails(
