@@ -94,6 +94,42 @@ def test_run_framework_setup_timeout(tmp_path):
     assert not (cache_dir / "setup" / f"{spec.name}.ok").exists()
 
 
+def test_run_framework_setup_timeout_terminates_process_tree(tmp_path, process_tree_probe):
+    spec = make_spec(
+        tmp_path,
+        setup=process_tree_probe.shell_command(),
+        name="process-tree-setup",
+    )
+    spec = FrameworkSpec(
+        name=spec.name,
+        dir=spec.dir,
+        manifest_path=spec.manifest_path,
+        entry=spec.entry,
+        setup=spec.setup,
+        env_keys=["GRANDCHILD_PID_FILE", "GRANDCHILD_TERM_FILE"],
+        model=spec.model,
+    )
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+
+    result = run_framework_setup(
+        spec,
+        cache_dir=cache_dir,
+        base_env={
+            **BASE_ENV,
+            "GRANDCHILD_PID_FILE": str(process_tree_probe.grandchild_pid_path),
+            "GRANDCHILD_TERM_FILE": str(process_tree_probe.grandchild_term_path),
+        },
+        dotenv=DOTENV,
+        timeout_s=1,
+    )
+
+    assert result.status == "failed"
+    assert result.reason == "timeout"
+    assert process_tree_probe.wait_for_grandchild_exit()
+    assert process_tree_probe.grandchild_term_path.exists()
+
+
 def test_run_framework_setup_truncates_oversize_stdout(tmp_path):
     # Script writes 6 MiB to stdout; harness should cap at 5 MiB
     spec = make_spec(

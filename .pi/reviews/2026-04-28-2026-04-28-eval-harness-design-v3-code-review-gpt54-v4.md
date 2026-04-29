@@ -87,4 +87,11 @@
   - `cd evals && uv run pytest -q -m 'not integration'`
   - `git diff --check`
 
-Remaining from reviewer: process-tree timeout handling.
+**Batch 2: process-tree timeout handling**
+- Added shared subprocess process-group helpers in `evals/evals/process_tree.py`.
+- Fixed runner, setup, and test-command timeout paths to launch subprocesses in isolated sessions and terminate the whole process group on timeout.
+- Added regression coverage for framework/setup/test grandchild-process cleanup on timeout.
+- Verification run:
+  - `cd evals && uv run pytest -q tests/runner_test.py tests/pipeline_test.py tests/setup_test.py`
+
+Remaining from reviewer: none from era 4 iteration 1.

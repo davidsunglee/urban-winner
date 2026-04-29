@@ -1,7 +1,6 @@
 import json
 import os
 import shlex
-import signal
 import subprocess
 import tempfile
 import threading
@@ -12,6 +11,7 @@ from uuid import uuid4
 
 from evals.discovery import CaseSpec, FrameworkSpec
 from evals.env import build_agent_env
+from evals.process_tree import PROCESS_GROUP_POPEN_KWARGS, terminate_process_tree
 from evals.schemas import validate_envelope
 from evals.setup import is_setup_failed
 
@@ -258,6 +258,7 @@ def run_cell(
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             env=agent_env,
+            **PROCESS_GROUP_POPEN_KWARGS,
         )
     except OSError as exc:
         misconfig_reason = f"failed to spawn entry: {exc}"
@@ -305,12 +306,7 @@ def run_cell(
         proc.wait(timeout=effective_config.timeout_s)
     except subprocess.TimeoutExpired:
         timed_out = True
-        proc.send_signal(signal.SIGTERM)
-        try:
-            proc.wait(timeout=KILL_GRACE_S)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait()
+        terminate_process_tree(proc, KILL_GRACE_S)
 
     t1.join()
     t2.join()

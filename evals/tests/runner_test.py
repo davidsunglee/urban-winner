@@ -196,6 +196,44 @@ def test_runner_timeout_kills_and_reports_timeout(fake_framework_dir, tmp_path):
     assert result.exit_code is None
 
 
+def test_runner_timeout_terminates_framework_process_tree(tmp_path, process_tree_probe):
+    fw_dir = tmp_path / "process-tree-fw"
+    fw_dir.mkdir()
+    fw = FrameworkSpec(
+        name="process-tree-fw",
+        dir=fw_dir,
+        manifest_path=fw_dir / "manifest.json",
+        entry=process_tree_probe.shell_command(),
+        setup=None,
+        env_keys=["GRANDCHILD_PID_FILE", "GRANDCHILD_TERM_FILE"],
+        model="fake",
+    )
+    case = _make_case(tmp_path)
+    cell_dir = tmp_path / "cell"
+    (cell_dir / "repo").mkdir(parents=True)
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+
+    result = run_cell(
+        framework=fw,
+        case=case,
+        effective_config=_effective(timeout_s=1),
+        cell_dir=cell_dir,
+        cache_dir=cache_dir,
+        repo_root=tmp_path,
+        base_env={
+            **BASE_ENV,
+            "GRANDCHILD_PID_FILE": str(process_tree_probe.grandchild_pid_path),
+            "GRANDCHILD_TERM_FILE": str(process_tree_probe.grandchild_term_path),
+        },
+        dotenv=DOTENV,
+    )
+
+    assert result.error_reason == "timeout"
+    assert process_tree_probe.wait_for_grandchild_exit()
+    assert process_tree_probe.grandchild_term_path.exists()
+
+
 def test_runner_noisy_stderr_truncates(fake_framework_dir, tmp_path):
     result, cell_dir = _run(tmp_path, fake_framework_dir, "noisy-stderr")
     assert result.stderr_truncated is True

@@ -1,7 +1,6 @@
 import hashlib
 import json
 import shlex
-import signal
 import subprocess
 import tempfile
 import threading
@@ -12,6 +11,7 @@ from pathlib import Path
 
 from evals.discovery import FrameworkSpec
 from evals.env import build_setup_env
+from evals.process_tree import PROCESS_GROUP_POPEN_KWARGS, terminate_process_tree
 
 _CAP_BYTES = 5 * 1024 * 1024
 _DEPENDENCY_FILE_NAMES = (
@@ -302,6 +302,7 @@ def run_framework_setup(
             env=env,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            **PROCESS_GROUP_POPEN_KWARGS,
         )
     except OSError as exc:
         return _record_pre_exec_failure(
@@ -336,12 +337,7 @@ def run_framework_setup(
         proc.wait(timeout=timeout_s)
     except subprocess.TimeoutExpired:
         timed_out = True
-        proc.send_signal(signal.SIGTERM)
-        try:
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait()
+        terminate_process_tree(proc, 5)
 
     t1.join()
     t2.join()

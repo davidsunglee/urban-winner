@@ -237,6 +237,23 @@ def test_visible_test_outcome_error_on_timeout(tmp_path):
     assert result.exit_code is None
 
 
+def test_test_command_timeout_terminates_process_tree(tmp_path, process_tree_probe):
+    result = run_test_command(
+        process_tree_probe.shell_command(),
+        cwd=tmp_path,
+        env={
+            **os.environ,
+            "GRANDCHILD_PID_FILE": str(process_tree_probe.grandchild_pid_path),
+            "GRANDCHILD_TERM_FILE": str(process_tree_probe.grandchild_term_path),
+        },
+        timeout_s=1,
+    )
+
+    assert result.outcome == "error"
+    assert process_tree_probe.wait_for_grandchild_exit()
+    assert process_tree_probe.grandchild_term_path.exists()
+
+
 def test_visible_test_output_caps_and_drains(tmp_path):
     # Generate ~6 MiB of stdout
     cmd = (

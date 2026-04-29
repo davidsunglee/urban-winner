@@ -1,7 +1,6 @@
 import json
 import os
 import shlex
-import signal
 import subprocess
 import sys
 import tempfile
@@ -15,6 +14,7 @@ import pathspec
 
 from evals.discovery import CaseSpec, FrameworkSpec
 from evals.env import build_test_env
+from evals.process_tree import PROCESS_GROUP_POPEN_KWARGS, terminate_process_tree
 from evals.runner import EffectiveConfig, RunnerResult
 from evals.schemas import validate_agent_output, validate_envelope
 from evals.workspace import compute_venv_fingerprint
@@ -181,6 +181,7 @@ def run_test_command(
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         env=env,
+        **PROCESS_GROUP_POPEN_KWARGS,
     )
 
     stdout_buf = bytearray()
@@ -206,12 +207,7 @@ def run_test_command(
         proc.wait(timeout=timeout_s)
     except subprocess.TimeoutExpired:
         timed_out = True
-        proc.send_signal(signal.SIGTERM)
-        try:
-            proc.wait(timeout=KILL_GRACE_S)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait()
+        terminate_process_tree(proc, KILL_GRACE_S)
 
     t1.join()
     t2.join()
