@@ -634,3 +634,29 @@ def test_resolve_effective_config_per_field_sources(tmp_path):
     assert cfg.sources["model"] == "framework-manifest"
     assert cfg.sources["timeout_s"] == "cell-flag"
     assert cfg.sources["max_steps"] == "harness-default"
+
+
+def test_resolve_effective_config_treats_none_overrides_as_absent(tmp_path):
+    fw = FrameworkSpec(
+        name="fw",
+        dir=tmp_path,
+        manifest_path=tmp_path / "manifest.json",
+        entry="./x",
+        setup=None,
+        env_keys=[],
+        model="manifest-model",
+    )
+
+    cfg = resolve_effective_config(
+        fw,
+        campaign_overrides={"model": None, "timeout_s": None},
+        cell_overrides={"max_steps": None},
+        harness_defaults={"timeout_s": 123, "max_steps": 456},
+    )
+
+    assert cfg.model == "manifest-model"
+    assert cfg.timeout_s == 123
+    assert cfg.max_steps == 456
+    assert cfg.sources["model"] == "framework-manifest"
+    assert cfg.sources["timeout_s"] == "harness-default"
+    assert cfg.sources["max_steps"] == "harness-default"

@@ -915,3 +915,66 @@ def test_eval_regenerates_report_after_rerun_while_holding_lock(
 
     assert rc == 0
     assert actions == ["lock", "run", "report", "unlock"]
+
+
+def test_eval_all_auto_prepare_runs_while_holding_campaign_lock(
+    tmp_path: Path, monkeypatch
+) -> None:
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    _write_good_framework(repo)
+    fixture = tmp_path / "fixture"
+    fixture.mkdir()
+    _write_good_case(repo, fixture)
+    campaign_dir = cli.eval_new(
+        repo,
+        frameworks=["good"],
+        cases=["case-001"],
+        config_overrides={},
+    )
+
+    monkeypatch.setattr(cli, "_repo_root", lambda: repo)
+
+    actions: list[str] = []
+    locked = False
+
+    @contextmanager
+    def fake_lock(campaign_dir_arg, *, argv, force_unlock=False):
+        nonlocal locked
+        assert campaign_dir_arg == campaign_dir
+        actions.append("lock")
+        locked = True
+        try:
+            yield
+        finally:
+            locked = False
+            actions.append("unlock")
+
+    def fake_do_prepare(**_kwargs):
+        actions.append("prepare:locked" if locked else "prepare:unlocked")
+        return cli._PrepareResult(summary=[], failed=False, case_failed=False)
+
+    def fake_run_one_cell(**kwargs):
+        actions.append("run:locked" if locked else "run:unlocked")
+        kwargs["cell_dir"].mkdir(parents=True, exist_ok=True)
+
+    def fake_write_report(_campaign_dir: Path) -> None:
+        actions.append("report:locked" if locked else "report:unlocked")
+
+    monkeypatch.setattr(cli, "_prepare_needed", lambda *_args: True)
+    monkeypatch.setattr(cli, "_do_prepare", fake_do_prepare)
+    monkeypatch.setattr(cli, "lock", fake_lock)
+    monkeypatch.setattr(cli, "_run_one_cell", fake_run_one_cell)
+    monkeypatch.setattr(cli, "write_report", fake_write_report)
+
+    args = cli._build_parser().parse_args(["eval-all"])
+    rc = cli.cmd_eval_all(args)
+
+    assert rc == 0
+    assert actions == [
+        "lock",
+        "prepare:locked",
+        "run:locked",
+        "report:locked",
+        "unlock",
+    ]

@@ -397,10 +397,10 @@ def resolve_effective_config(
     sources: dict[str, str] = {}
 
     def pick(field: str, manifest_value):
-        if field in cell_overrides:
+        if cell_overrides.get(field) is not None:
             sources[field] = "cell-flag"
             return cell_overrides[field]
-        if field in campaign_overrides:
+        if campaign_overrides.get(field) is not None:
             sources[field] = "campaign"
             return campaign_overrides[field]
         if manifest_value is not None:

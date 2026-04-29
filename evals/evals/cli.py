@@ -410,24 +410,24 @@ def cmd_eval_all(args) -> int:
     if args.case:
         case_run = [c for c in case_run if c.case_id == args.case]
 
-    if _prepare_needed(repo_root, fw_run, case_run, cache_dir):
-        prepare_result = _do_prepare(
-            repo_root=repo_root,
-            frameworks=fw_run,
-            cases=case_run,
-            cache_dir=cache_dir,
-            base_env=base_env,
-            dotenv=dotenv,
-            setup_timeout_s=600,
-            skip_fresh_failed_setups=True,
-        )
-        for line in prepare_result.summary:
-            print(line)
-        if prepare_result.case_failed:
-            print("aborting eval-all due to case prepare failure", file=sys.stderr)
-            return 1
-
     with lock(campaign_dir, argv=sys.argv, force_unlock=args.force_unlock):
+        if _prepare_needed(repo_root, fw_run, case_run, cache_dir):
+            prepare_result = _do_prepare(
+                repo_root=repo_root,
+                frameworks=fw_run,
+                cases=case_run,
+                cache_dir=cache_dir,
+                base_env=base_env,
+                dotenv=dotenv,
+                setup_timeout_s=600,
+                skip_fresh_failed_setups=True,
+            )
+            for line in prepare_result.summary:
+                print(line)
+            if prepare_result.case_failed:
+                print("aborting eval-all due to case prepare failure", file=sys.stderr)
+                return 1
+
         for fw in fw_run:
             for case in case_run:
                 cell_dir = campaign_dir / fw.name / case.case_id
