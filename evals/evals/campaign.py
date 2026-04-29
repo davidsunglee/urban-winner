@@ -78,34 +78,48 @@ def eval_new(
     frameworks: list[str],
     cases: list[str],
     config_overrides: dict,
+    force_unlock: bool = False,
+    argv: list[str] | None = None,
 ) -> Path:
     repo_root = Path(repo_root)
-    runs_dir = repo_root / "runs"
-    runs_dir.mkdir(parents=True, exist_ok=True)
+    existing_campaign_dir = current_campaign(repo_root)
+    if existing_campaign_dir is not None:
+        acquire_lock(
+            existing_campaign_dir,
+            argv=argv or ["eval-new"],
+            force_unlock=force_unlock,
+        )
 
-    campaign_dir = _create_unique_campaign_dir(runs_dir, _now_iso())
+    try:
+        runs_dir = repo_root / "runs"
+        runs_dir.mkdir(parents=True, exist_ok=True)
 
-    manifest = {
-        "started_at": _iso_zulu(),
-        "git": _git_state(repo_root),
-        "frameworks": frameworks,
-        "cases": cases,
-        "config_overrides": {
-            "model": config_overrides.get("model", None),
-            "timeout_s": config_overrides.get("timeout_s", None),
-            "max_steps": config_overrides.get("max_steps", None),
-        },
-    }
-    _atomic_write_json(campaign_dir / "manifest.json", manifest)
+        campaign_dir = _create_unique_campaign_dir(runs_dir, _now_iso())
 
-    current_path = runs_dir / "CURRENT"
-    current_tmp = runs_dir / "CURRENT.tmp"
-    if current_tmp.exists() or current_tmp.is_symlink():
-        os.unlink(current_tmp)
-    os.symlink(campaign_dir.name, current_tmp)
-    os.rename(current_tmp, current_path)
+        manifest = {
+            "started_at": _iso_zulu(),
+            "git": _git_state(repo_root),
+            "frameworks": frameworks,
+            "cases": cases,
+            "config_overrides": {
+                "model": config_overrides.get("model", None),
+                "timeout_s": config_overrides.get("timeout_s", None),
+                "max_steps": config_overrides.get("max_steps", None),
+            },
+        }
+        _atomic_write_json(campaign_dir / "manifest.json", manifest)
 
-    return campaign_dir
+        current_path = runs_dir / "CURRENT"
+        current_tmp = runs_dir / "CURRENT.tmp"
+        if current_tmp.exists() or current_tmp.is_symlink():
+            os.unlink(current_tmp)
+        os.symlink(campaign_dir.name, current_tmp)
+        os.rename(current_tmp, current_path)
+
+        return campaign_dir
+    finally:
+        if existing_campaign_dir is not None:
+            release_lock(existing_campaign_dir)
 
 
 def current_campaign(repo_root) -> Path | None:

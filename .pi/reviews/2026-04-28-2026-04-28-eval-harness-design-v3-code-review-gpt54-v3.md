@@ -73,4 +73,12 @@ None found.
   - `cd evals && uv run pytest -q tests/runner_test.py tests/workspace_test.py tests/pipeline_test.py`
   - `cd evals && uv run pytest -q`
 
-Remaining from reviewer: `eval-new` lock / `--force-unlock` semantics.
+**Batch 2: eval-new lock semantics**
+- Added `eval-new --force-unlock` support in the CLI.
+- Fixed `eval_new()` to acquire the existing current campaign lock before repointing `runs/CURRENT`, honoring `force_unlock` when requested.
+- Added regression coverage in `evals/tests/campaign_test.py` and `evals/tests/cli_test.py` for lock enforcement and `--force-unlock` flow.
+- Verification run:
+  - `cd evals && uv run pytest -q tests/campaign_test.py tests/cli_test.py`
+  - `git diff --check`
+
+Remaining from reviewer: none from era 3 iteration 1.

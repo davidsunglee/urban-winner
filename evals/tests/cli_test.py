@@ -81,6 +81,42 @@ def test_cmd_eval_new_includes_malformed_framework_in_matrix(
     )
 
 
+def test_cmd_eval_new_accepts_force_unlock_for_current_campaign_lock(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    _write_good_framework(repo, name="good")
+    fixture = tmp_path / "fix"
+    fixture.mkdir()
+    _write_good_case(repo, fixture)
+    first_campaign_dir = cli.eval_new(
+        repo,
+        frameworks=["good"],
+        cases=["case-001"],
+        config_overrides={},
+    )
+    (first_campaign_dir / ".lock").write_text(
+        json.dumps(
+            {
+                "pid": 12345,
+                "hostname": "other-host",
+                "started_at": "2026-01-01T00:00:00Z",
+                "argv": ["eval-all"],
+            }
+        )
+    )
+
+    monkeypatch.setattr(cli, "_repo_root", lambda: repo)
+    args = cli._build_parser().parse_args(["eval-new", "--force-unlock"])
+    rc = cli.cmd_eval_new(args)
+
+    assert rc == 0
+    second_campaign_dir = Path(capsys.readouterr().out.strip())
+    assert second_campaign_dir != first_campaign_dir
+    assert (repo / "runs" / "CURRENT").resolve() == second_campaign_dir.resolve()
+
+
 # ---------------------------------------------------------------------------
 # _prepare_needed — must detect stale fixture/lock hashes, not just missing dirs.
 # ---------------------------------------------------------------------------

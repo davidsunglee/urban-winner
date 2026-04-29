@@ -96,6 +96,68 @@ def test_eval_new_preserves_existing_campaign_on_timestamp_collision(tmp_repo_ro
     assert (second_campaign_dir / "manifest.json").exists()
 
 
+def test_eval_new_refuses_to_repoint_when_current_campaign_is_locked(tmp_repo_root):
+    first_campaign_dir = eval_new(
+        tmp_repo_root,
+        frameworks=["first"],
+        cases=["case-a"],
+        config_overrides={},
+    )
+    (first_campaign_dir / ".lock").write_text(
+        json.dumps(
+            {
+                "pid": os.getpid(),
+                "hostname": socket.gethostname(),
+                "started_at": "2026-01-01T00:00:00Z",
+                "argv": ["eval-all"],
+            }
+        )
+    )
+
+    with pytest.raises(LockBusyError, match=str(os.getpid())):
+        eval_new(
+            tmp_repo_root,
+            frameworks=["second"],
+            cases=["case-b"],
+            config_overrides={},
+        )
+
+    assert current_campaign(tmp_repo_root).resolve() == first_campaign_dir.resolve()
+
+
+def test_eval_new_force_unlock_repoints_after_cross_host_lock(tmp_repo_root, capsys):
+    first_campaign_dir = eval_new(
+        tmp_repo_root,
+        frameworks=["first"],
+        cases=["case-a"],
+        config_overrides={},
+    )
+    (first_campaign_dir / ".lock").write_text(
+        json.dumps(
+            {
+                "pid": 12345,
+                "hostname": "other-host",
+                "started_at": "2026-01-01T00:00:00Z",
+                "argv": ["eval-all"],
+            }
+        )
+    )
+
+    second_campaign_dir = eval_new(
+        tmp_repo_root,
+        frameworks=["second"],
+        cases=["case-b"],
+        config_overrides={},
+        force_unlock=True,
+        argv=["eval-new", "--force-unlock"],
+    )
+
+    assert second_campaign_dir != first_campaign_dir
+    assert current_campaign(tmp_repo_root).resolve() == second_campaign_dir.resolve()
+    assert not (first_campaign_dir / ".lock").exists()
+    assert "warning" in capsys.readouterr().err.lower()
+
+
 # --- current_campaign tests ---
 
 def test_current_campaign_returns_none_when_no_symlink(tmp_repo_root):

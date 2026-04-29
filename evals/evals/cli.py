@@ -282,6 +282,8 @@ def cmd_eval_new(args) -> int:
         frameworks=[f.name for f in frameworks],
         cases=[c.case_id for c in cases],
         config_overrides=overrides,
+        force_unlock=args.force_unlock,
+        argv=sys.argv,
     )
     print(str(campaign_dir))
     return 0
@@ -497,6 +499,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p_new.add_argument("--model", default=None)
     p_new.add_argument("--timeout-s", dest="timeout_s", type=int, default=None)
     p_new.add_argument("--max-steps", dest="max_steps", type=int, default=None)
+    p_new.add_argument("--force-unlock", dest="force_unlock", action="store_true")
     p_new.set_defaults(func=cmd_eval_new)
 
     p_all = sub.add_parser(
