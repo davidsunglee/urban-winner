@@ -59,6 +59,16 @@
   - `cd evals && uv run pytest -q tests/workspace_test.py tests/cli_test.py tests/integration/test_pytest_fixture.py`
   - `cd evals && uv run pytest -q`
 
+## Remediation Log
+
+### Follow-up after full review
+- Fixed `evals/evals/workspace.py` so tracked symlinks hash by link target and are recreated as symlinks in layer-1 bare repos.
+- Restored safe slash-separated case ID support in `evals/evals/schemas.py` while still rejecting absolute paths, empty segments, and traversal segments.
+- Added regression coverage in `evals/tests/workspace_test.py` and `evals/tests/schemas_test.py`.
+- Verification run:
+  - `cd evals && uv run pytest -q -m 'not integration' tests/workspace_test.py tests/schemas_test.py`
+  - `cd evals && uv run pytest -q -m 'not integration'`
+
 ### Recommendations
 - Add a “real case command smoke test” that discovers each checked-in case, builds its venv, and runs the declared visible command long enough to prove the command can spawn/import correctly.
 - Consider making cache preparation consistently protected by a lock across all CLI paths.

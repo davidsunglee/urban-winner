@@ -55,7 +55,11 @@ def compute_fixture_hash(
         rel = rel_bytes.decode()
         file_path = repo_root / rel
         mode = _git_file_mode(file_path)
-        file_hash = hashlib.sha256(file_path.read_bytes()).hexdigest()
+        if file_path.is_symlink():
+            content = os.fsencode(os.readlink(file_path))
+        else:
+            content = file_path.read_bytes()
+        file_hash = hashlib.sha256(content).hexdigest()
         entries.append((rel, mode, file_hash))
 
     entries.sort(key=lambda e: e[0])
@@ -105,6 +109,8 @@ def ensure_case_bare_repo(
         hash_file.unlink()
 
     cache_dir.mkdir(parents=True, exist_ok=True)
+    bare_dir.parent.mkdir(parents=True, exist_ok=True)
+    hash_file.parent.mkdir(parents=True, exist_ok=True)
 
     with tempfile.TemporaryDirectory(dir=cache_dir) as tmp_str:
         tmp = Path(tmp_str)
@@ -124,9 +130,13 @@ def ensure_case_bare_repo(
         prefix = f"{fixture_rel}/"
         for rel in tracked:
             rel_in_fixture = rel[len(prefix):]
+            src = repo_root / rel
             dst = work / rel_in_fixture
             dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(str(repo_root / rel), str(dst))
+            if src.is_symlink():
+                os.symlink(os.readlink(src), dst)
+            else:
+                shutil.copy2(str(src), str(dst))
 
         git_env = {
             **os.environ,
@@ -216,6 +226,8 @@ def ensure_case_venv(
         hash_file.unlink()
 
     cache_dir.mkdir(parents=True, exist_ok=True)
+    venv_dir.parent.mkdir(parents=True, exist_ok=True)
+    hash_file.parent.mkdir(parents=True, exist_ok=True)
 
     if (fixture_dir / "uv.lock").exists():
         _run_uv_sync(fixture_dir, venv_dir, frozen=True)

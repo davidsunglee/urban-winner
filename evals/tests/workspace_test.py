@@ -104,6 +104,24 @@ def test_compute_fixture_hash_changes_when_tracked_file_mode_changes(tmp_path):
     assert hash1 != hash2
 
 
+def test_compute_fixture_hash_hashes_tracked_symlink_target_not_referent(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _make_git_repo(repo)
+    case_id = "link-case"
+    fixture = repo / "fixtures" / case_id
+    fixture.mkdir(parents=True)
+    (repo / "fixtures" / "shared.txt").write_text("original\n")
+    (fixture / "link.txt").symlink_to("../shared.txt")
+    _git_add_commit(repo, "add symlink fixture")
+
+    hash1 = compute_fixture_hash(repo, case_id)
+    (repo / "fixtures" / "shared.txt").write_text("changed outside fixture\n")
+    hash2 = compute_fixture_hash(repo, case_id)
+
+    assert hash1 == hash2
+
+
 def test_compute_fixture_hash_uses_manifest_fixture_dir(tmp_path):
     repo, _case_id = _make_fixture_repo(tmp_path, case_id="fixture-dir")
 
@@ -210,6 +228,40 @@ def test_ensure_case_bare_repo_rebuilds_when_hash_changes(tmp_path):
     head_mtime2 = (cache / f"{case_id}.git" / "HEAD").stat().st_mtime
 
     assert head_mtime1 != head_mtime2, "second call should rebuild when hash changes"
+
+
+def test_ensure_case_bare_repo_preserves_tracked_symlinks(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _make_git_repo(repo)
+    case_id = "link-case"
+    fixture = repo / "fixtures" / case_id
+    fixture.mkdir(parents=True)
+    (fixture / "target.txt").write_text("target contents\n")
+    (fixture / "link.txt").symlink_to("target.txt")
+    _git_add_commit(repo, "add symlink fixture")
+    cache = tmp_path / "cache"
+    cache.mkdir()
+
+    bare = ensure_case_bare_repo(repo, case_id, cache)
+    dest = tmp_path / "cell"
+    clone_cell_worktree(bare, dest)
+
+    assert (dest / "link.txt").is_symlink()
+    assert os.readlink(dest / "link.txt") == "target.txt"
+
+
+def test_ensure_case_bare_repo_supports_slash_case_ids(tmp_path):
+    repo, case_id = _make_fixture_repo(tmp_path, case_id="org/case")
+    cache = tmp_path / "cache"
+    cache.mkdir()
+
+    bare = ensure_case_bare_repo(repo, case_id, cache)
+    dest = tmp_path / "cell"
+    clone_cell_worktree(bare, dest)
+
+    assert bare == cache / "org/case.git"
+    assert (dest / "main.py").read_text() == "x = 1\n"
 
 
 def test_ensure_case_venv_rebuilds_when_hash_file_matches_but_venv_missing(tmp_path, monkeypatch):

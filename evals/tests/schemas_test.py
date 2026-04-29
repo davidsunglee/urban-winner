@@ -48,8 +48,22 @@ def test_valid_case_manifest_passes():
     assert validate_case_manifest(manifest) == []
 
 
-@pytest.mark.parametrize("case_id", ["nested/case", "../escape", "/tmp/escape", ".", ".."])
-def test_case_manifest_rejects_path_like_case_ids(case_id):
+def test_case_manifest_accepts_slash_separated_case_id_segments():
+    manifest = {
+        "case_id": "org/project-1.case",
+        "fixture_repo": "fixtures/org/project-1.case",
+        "failing_test_command": "pytest test.py",
+        "failure_output": "",
+    }
+
+    assert validate_case_manifest(manifest) == []
+
+
+@pytest.mark.parametrize(
+    "case_id",
+    ["../escape", "/tmp/escape", "nested/../escape", "nested//case", ".", ".."],
+)
+def test_case_manifest_rejects_unsafe_path_like_case_ids(case_id):
     manifest = {
         "case_id": case_id,
         "fixture_repo": "fixtures/test_case_1",

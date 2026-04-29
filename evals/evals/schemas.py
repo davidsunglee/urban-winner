@@ -9,7 +9,7 @@ CASE_OPTIONAL = {"failure_output", "failure_output_path", "hidden_test_command",
 ENVELOPE_REQUIRED = {"task_id", "output", "trace", "error"}
 TRACE_REQUIRED = {"steps", "tokens", "latency_ms"}
 OUTPUT_REQUIRED = {"root_cause", "summary", "changed_files", "tests_run", "evidence", "confidence"}
-CASE_ID_PATTERN = r"^(?!\.{1,2}$)[a-zA-Z0-9_.-]+$"
+CASE_ID_PATTERN = r"^(?!.*(?:^|/)\.{1,2}(?:/|$))[a-zA-Z0-9_.-]+(?:/[a-zA-Z0-9_.-]+)*$"
 
 
 def _is_int(value: Any) -> bool:
@@ -78,8 +78,9 @@ def validate_case_manifest(obj: object) -> list[str]:
     for key in unknown_keys:
         errors.append(f"unknown key: {key}")
 
-    # Validate case_id format. Case IDs are used as artifact directory names,
-    # so keep them to a single safe path segment.
+    # Validate case_id format. Case IDs may contain slash-separated segments for
+    # org/repo-style identifiers, but absolute paths, empty segments, and
+    # traversal segments are rejected before they are used as artifact paths.
     if "case_id" in obj:
         case_id = obj["case_id"]
         if not isinstance(case_id, str):
