@@ -14,7 +14,11 @@ def _setup_real_repo(tmp_path: Path, repo_root: Path, fixtures_dir: Path) -> Pat
     repo = tmp_path / "repo"
     repo.mkdir()
 
-    shutil.copytree(repo_root / "frameworks", repo / "frameworks")
+    shutil.copytree(
+        repo_root / "frameworks",
+        repo / "frameworks",
+        ignore=shutil.ignore_patterns(".venv", "__pycache__", "*.pyc"),
+    )
 
     # Copy the synthetic case fixture into fixtures/<case>/ for ensure_case_bare_repo.
     src = fixtures_dir / "cases" / "test-case-001"
