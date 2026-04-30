@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-# Backend choice: LocalShellBackend (the constructor accepts a root_dir argument that pins subprocess cwd and roots filesystem tools).
+# Backend choice: LocalShellBackend with virtual_mode=True. This roots the filesystem
+# tools (ls/glob/grep/read_file/write_file/edit_file) at input.repo_path: absolute paths
+# are interpreted as virtual paths under the repo root, and `..`/`~` traversal is rejected.
+# `execute` (shell) still runs with cwd pinned to repo_path; shell access bypasses
+# virtual_mode by design (see deepagents docs), but the agent prompt forbids commands
+# that mutate the harness-owned case venv or .git/.
 from __future__ import annotations
 
 import json
@@ -108,8 +113,8 @@ def submit_report(
 SYSTEM_PROMPT = """You are a software engineer fixing a failing test in a Python repository.
 
 Your tools:
-- Filesystem: ls, glob, grep, read_file, write_file, edit_file (use these to navigate and edit the repo).
-- Shell: execute (run pytest, git diff, etc. — commands run with cwd pinned to the repo root).
+- Filesystem: ls, glob, grep, read_file, write_file, edit_file. Paths are virtual and rooted at the repo. Use REPO-RELATIVE paths only (e.g. `parse_duration/parser.py`, `tests/test_foo.py`). A leading `/` is treated as the repo root, not the host root, so `/parse_duration/parser.py` is also fine. Do NOT pass host absolute paths like `/Users/...` and do NOT use `..` traversal — those are rejected.
+- Shell: execute (run pytest, git diff, etc. — commands run with cwd pinned to the repo root, so repo-relative shell paths work).
 - submit_report: call exactly once when the fix is complete.
 
 Workflow you must follow:
@@ -152,13 +157,19 @@ def _build_shell_env(repo_path: str) -> dict[str, str]:
     return env
 
 
-def _build_agent(*, model_name: str, repo_path: str):
-    model = init_chat_model(f"anthropic:{model_name}")
-    backend = LocalShellBackend(
+def _build_backend(*, repo_path: str) -> LocalShellBackend:
+    # virtual_mode=True roots filesystem tools at repo_path: absolute paths are
+    # treated as virtual (repo-relative) and `..`/`~` traversal is rejected.
+    return LocalShellBackend(
         root_dir=repo_path,
-        virtual_mode=False,
+        virtual_mode=True,
         env=_build_shell_env(repo_path),
     )
+
+
+def _build_agent(*, model_name: str, repo_path: str):
+    model = init_chat_model(f"anthropic:{model_name}")
+    backend = _build_backend(repo_path=repo_path)
     return create_deep_agent(
         model=model,
         backend=backend,
@@ -173,7 +184,8 @@ def _user_message(input_obj: dict[str, Any]) -> str:
     allowed = ec.get("allowed_paths")
     max_files = ec.get("max_changed_files")
     lines = [
-        f"Repo path (cwd for shell tool): {input_obj['repo_path']}",
+        f"Repo path (host filesystem location, used as cwd for the execute shell tool): {input_obj['repo_path']}",
+        "Filesystem tools (ls/glob/grep/read_file/write_file/edit_file) are virtually rooted at this repo. Pass repo-relative paths only (e.g. `parse_duration/parser.py` or `/parse_duration/parser.py`); do NOT pass host absolute paths or use `..`.",
         f"Failing test command: {input_obj['failing_test_command']}",
         "",
         "Captured failure output:",
@@ -195,6 +207,10 @@ def _user_message(input_obj: dict[str, Any]) -> str:
 
 def _messages_to_trace(messages: list, latency_ms: int) -> dict[str, Any]:
     steps: list[dict[str, Any]] = []
+    # tool_call_id -> step index, for matching ToolMessage results to the
+    # originating tool call when an AIMessage emits multiple calls.
+    pending_by_id: dict[str, int] = {}
+    pending_order: list[int] = []  # ordered fallback queue for results without a matching id
     input_tokens = 0
     output_tokens = 0
     saw_usage = False
@@ -208,12 +224,17 @@ def _messages_to_trace(messages: list, latency_ms: int) -> dict[str, Any]:
             tool_calls = getattr(msg, "tool_calls", None) or []
             if tool_calls:
                 for tc in tool_calls:
+                    idx = len(steps)
                     steps.append({
                         "kind": "tool_call",
                         "name": tc.get("name", ""),
                         "args": tc.get("args", {}),
                         "result": {},
                     })
+                    tc_id = tc.get("id")
+                    if tc_id:
+                        pending_by_id[tc_id] = idx
+                    pending_order.append(idx)
             else:
                 steps.append({
                     "kind": "model_call",
@@ -222,9 +243,27 @@ def _messages_to_trace(messages: list, latency_ms: int) -> dict[str, Any]:
                     "result": {"content": _stringify_content(msg.content)},
                 })
         elif isinstance(msg, ToolMessage):
-            if steps and steps[-1]["kind"] == "tool_call" and not steps[-1]["result"]:
-                steps[-1]["result"] = {"content": _stringify_content(msg.content)}
+            target_idx: int | None = None
+            tc_id = getattr(msg, "tool_call_id", None)
+            if tc_id and tc_id in pending_by_id:
+                target_idx = pending_by_id.pop(tc_id)
+                if target_idx in pending_order:
+                    pending_order.remove(target_idx)
             else:
+                # Fallback: oldest still-pending tool_call step in arrival order.
+                while pending_order:
+                    candidate = pending_order.pop(0)
+                    if not steps[candidate]["result"]:
+                        target_idx = candidate
+                        # Drop any stale id->idx mapping for this slot.
+                        for stale_id, stale_idx in list(pending_by_id.items()):
+                            if stale_idx == candidate:
+                                pending_by_id.pop(stale_id, None)
+                        break
+            if target_idx is not None:
+                steps[target_idx]["result"] = {"content": _stringify_content(msg.content)}
+            else:
+                # Orphan ToolMessage with no matching prior tool call — emit standalone.
                 steps.append({
                     "kind": "tool_call",
                     "name": getattr(msg, "name", "") or "",
