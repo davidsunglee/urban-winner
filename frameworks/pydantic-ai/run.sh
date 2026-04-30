@@ -1,3 +1,4 @@
 #!/bin/sh
-echo "pydantic-ai: not implemented" 1>&2
-exit 2
+set -eu
+cd "$(dirname "$0")"
+exec uv run --quiet python adapter.py "$@"
