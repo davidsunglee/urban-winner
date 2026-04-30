@@ -1,5 +1,6 @@
 {
   "entry": "./run.sh",
-  "env": [],
+  "setup": "uv sync --frozen",
+  "env": ["ANTHROPIC_API_KEY"],
   "model": "claude-sonnet-4-6"
 }

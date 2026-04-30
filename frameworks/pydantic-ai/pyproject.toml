@@ -1,0 +1,9 @@
+[project]
+name = "pydantic-ai-adapter"
+version = "0.0.0"
+description = "Pydantic-AI framework adapter for the agent shootout"
+requires-python = ">=3.11"
+dependencies = [
+  "pathspec>=0.12",
+  "pydantic-ai>=1.0,<2.0",
+]
