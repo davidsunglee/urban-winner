@@ -9,15 +9,22 @@ import pytest
 from evals import cli
 
 
+#: Real adapters that this stub-only test must NOT copy into the temp repo,
+# because they would make eval-all network/credential dependent.
+_NON_STUB_FRAMEWORKS: frozenset[str] = frozenset({"deepagents"})
+
+
 def _setup_real_repo(tmp_path: Path, repo_root: Path, fixtures_dir: Path) -> Path:
-    """Mirror the real repo layout in tmp: real frameworks/ + the synthetic case."""
+    """Mirror the real repo layout in tmp: stub frameworks/ + the synthetic case."""
     repo = tmp_path / "repo"
     repo.mkdir()
 
     shutil.copytree(
         repo_root / "frameworks",
         repo / "frameworks",
-        ignore=shutil.ignore_patterns(".venv", "__pycache__", "*.pyc"),
+        ignore=shutil.ignore_patterns(
+            ".venv", "__pycache__", "*.pyc", *_NON_STUB_FRAMEWORKS,
+        ),
     )
 
     # Copy the synthetic case fixture into fixtures/<case>/ for ensure_case_bare_repo.
@@ -53,6 +60,12 @@ def test_eval_all_with_stub_frameworks(
 ) -> None:
     repo = _setup_real_repo(tmp_path, repo_root, fixtures_dir)
 
+    # The stub-only test must not include the real deepagents adapter, which
+    # would make this test network/credential dependent.
+    assert not (repo / "frameworks" / "deepagents").exists(), (
+        "deepagents must be excluded from the stub-only test repo"
+    )
+
     monkeypatch.setattr(cli, "_repo_root", lambda: repo)
 
     args = cli._build_parser().parse_args(["eval-all"])
@@ -66,7 +79,6 @@ def test_eval_all_with_stub_frameworks(
     expected_frameworks = {
         "agentcore",
         "claude-agent-sdk",
-        "deepagents",
         "google-adk",
         "mastra",
         "openai-agents",
